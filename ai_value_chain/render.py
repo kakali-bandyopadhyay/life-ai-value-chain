@@ -97,12 +97,7 @@ def _value_chain_svg() -> str:
     stage_counts = Counter(row["value_chain_stage"] for row in cases)
     high_ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "high")
     unacceptable_ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "unacceptable")
-    ineligible_detail = []
-    if high_ids:
-        ineligible_detail.append(f'{", ".join(high_ids)} high')
-    if unacceptable_ids:
-        ineligible_detail.append(f'{", ".join(unacceptable_ids)} unacceptable')
-    ineligible_label = " · ".join(ineligible_detail)
+    ineligible_ids = " · ".join(high_ids + unacceptable_ids)
     worked_ids = sorted(row["use_case_id"] for row in cases if row["worked_governance"])
     controls_count = len(load_controls())
     actions_count = len(load_actions())
@@ -117,18 +112,18 @@ def _value_chain_svg() -> str:
             f'<text class="box-detail" x="{center}" y="54" text-anchor="middle">{stage_counts[stage]} use cases</text></g>'
         )
     edges = []
-    for stage, x in zip(stage_order, stage_x):
+    for index, (stage, x) in enumerate(zip(stage_order, stage_x)):
         stage_center = x + 66
-        gate_x = min(max(stage_center, 230), 490)
+        gate_x = 262 + 49 * index
         edges.append(
             f'<line class="flow-arrow" data-source="stage-{stage}" data-target="gate" x1="{stage_center}" y1="68" x2="{gate_x}" y2="112" marker-end="url(#flow-arrowhead)"/>'
         )
     edges.extend([
-        '<line class="flow-arrow" data-source="gate" data-target="shortlist" x1="360" y1="164" x2="200" y2="212" marker-end="url(#flow-arrowhead)"/>',
-        '<line class="flow-arrow dashed" data-source="gate" data-target="ne" x1="360" y1="164" x2="520" y2="212" marker-end="url(#flow-arrowhead)"/>',
-        '<line class="flow-arrow" data-source="shortlist" data-target="worked" x1="200" y1="264" x2="200" y2="300" marker-end="url(#flow-arrowhead)"/>',
-        '<line class="flow-arrow" data-source="worked" data-target="controls" x1="126" y1="352" x2="126" y2="392" marker-end="url(#flow-arrowhead)"/>',
-        '<line class="flow-arrow" data-source="worked" data-target="accountability" x1="274" y1="352" x2="274" y2="392" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="gate" data-target="shortlist" x1="360" y1="164" x2="360" y2="212" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow dashed" data-source="gate" data-target="ne" x1="460" y1="164" x2="620" y2="212" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="shortlist" data-target="worked" x1="360" y1="264" x2="360" y2="300" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="worked" data-target="controls" x1="292" y1="352" x2="292" y2="392" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="worked" data-target="accountability" x1="428" y1="352" x2="428" y2="392" marker-end="url(#flow-arrowhead)"/>',
     ])
     worked_text = " · ".join(worked_ids)
     return (
@@ -136,26 +131,26 @@ def _value_chain_svg() -> str:
         '<title id="value-chain-title">Value chain assessment and governance flow</title>'
         f'<desc id="value-chain-desc">{len(cases)} use cases across five stages pass through an internal AI risk gate at {html.escape(appetite)} appetite. '
         f'{len(ineligible)} are not eligible; the ranked shortlist flows to worked governance, {controls_count} controls and {actions_count} accountability actions.</desc>'
-        '<defs><marker id="flow-arrowhead" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="arrowhead" d="M0 0 L10 5 L0 10 z"/></marker></defs>'
+        '<defs><marker id="flow-arrowhead" markerUnits="userSpaceOnUse" viewBox="0 0 7 7" markerWidth="7" markerHeight="7" refX="7" refY="3.5" orient="auto"><path class="arrowhead" d="M0,0 L7,3.5 L0,7 z"/></marker></defs>'
         + "".join(edges)
         + "".join(stage_parts)
         + '<g class="gate" data-box="gate"><rect x="230" y="112" width="260" height="52" rx="8"/>'
         + '<text class="box-title" x="360" y="134" text-anchor="middle">Internal AI risk gate</text>'
         + f'<text class="box-detail" x="360" y="152" text-anchor="middle">appetite: {html.escape(appetite)}</text></g>'
-        + '<g class="shortlist" data-box="shortlist"><rect x="60" y="212" width="280" height="52" rx="8"/>'
-        + '<text class="box-title" x="200" y="234" text-anchor="middle">Ranked shortlist</text>'
-        + f'<text class="box-detail" x="200" y="252" text-anchor="middle">top {config["shortlist_size"]} of {len(ranked)} eligible</text></g>'
-        + f'<g class="ne" data-box="ne"><rect x="380" y="212" width="280" height="52" rx="8"/><text class="box-title" x="520" y="234" text-anchor="middle">Not eligible ({len(ineligible)})</text>'
-        + f'<text class="box-detail" x="520" y="252" text-anchor="middle">{html.escape(ineligible_label)}</text></g>'
-        + '<g class="gov worked" data-box="worked"><rect x="60" y="300" width="280" height="52" rx="8"/>'
-        + '<text class="box-title" x="200" y="322" text-anchor="middle">Worked governance</text>'
-        + f'<text class="box-detail" x="200" y="340" text-anchor="middle">{html.escape(worked_text)}</text></g>'
-        + '<g class="gov controls" data-box="controls"><rect x="60" y="392" width="132" height="52" rx="8"/>'
-        + '<text class="box-title" x="126" y="414" text-anchor="middle">Controls trace</text>'
-        + f'<text class="box-detail" x="126" y="432" text-anchor="middle">{controls_count} controls</text></g>'
-        + '<g class="gov accountability" data-box="accountability"><rect x="208" y="392" width="132" height="52" rx="8"/>'
-        + '<text class="box-title" x="274" y="414" text-anchor="middle">Agent accountability</text>'
-        + f'<text class="box-detail" x="274" y="432" text-anchor="middle">{actions_count} actions</text></g>'
+        + '<g class="shortlist" data-box="shortlist"><rect x="230" y="212" width="260" height="52" rx="8"/>'
+        + '<text class="box-title" x="360" y="234" text-anchor="middle">Ranked shortlist</text>'
+        + f'<text class="box-detail" x="360" y="252" text-anchor="middle">top {config["shortlist_size"]} of {len(ranked)} eligible</text></g>'
+        + f'<g class="ne" data-box="ne"><rect x="530" y="212" width="180" height="52" rx="8"/><text class="box-title" x="620" y="234" text-anchor="middle">Not eligible ({len(ineligible)})</text>'
+        + f'<text class="box-detail" x="620" y="252" text-anchor="middle">{html.escape(ineligible_ids)}</text></g>'
+        + '<g class="gov worked" data-box="worked"><rect x="230" y="300" width="260" height="52" rx="8"/>'
+        + '<text class="box-title" x="360" y="322" text-anchor="middle">Worked governance</text>'
+        + f'<text class="box-detail" x="360" y="340" text-anchor="middle">{html.escape(worked_text)}</text></g>'
+        + '<g class="gov controls" data-box="controls"><rect x="230" y="392" width="124" height="52" rx="8"/>'
+        + '<text class="box-title" x="292" y="414" text-anchor="middle">Controls trace</text>'
+        + f'<text class="box-detail" x="292" y="432" text-anchor="middle">{controls_count} controls</text></g>'
+        + '<g class="gov accountability" data-box="accountability"><rect x="366" y="392" width="124" height="52" rx="8"/>'
+        + '<text class="box-title" x="428" y="414" text-anchor="middle">Accountability</text>'
+        + f'<text class="box-detail" x="428" y="432" text-anchor="middle">{actions_count} agent actions</text></g>'
         + "</svg>"
     )
 
@@ -168,10 +163,21 @@ def _chart_figure(number: int, title: str, chart: str, caption: str, figure_clas
 
 
 FLOW_FIGURE_TITLE = "From candidate use cases to governed agents"
-FLOW_FIGURE_CAPTION = (
-    "Every use case passes the internal AI risk gate before ranking; only shortlisted use cases get worked governance. "
-    "Source: data/use_cases.json, data/scoring_config.json, data/controls_trace.json, data/agent_accountability.json · synthetic data."
-)
+
+
+def _flow_figure_caption() -> str:
+    _, _, _, _, ineligible = _ranked_data()
+    by_tier = []
+    for tier, label in (("high", "high"), ("unacceptable", "unacceptable")):
+        ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == tier)
+        if ids:
+            by_tier.append(f'{", ".join(ids)} {label}')
+    exclusions = " · ".join(by_tier)
+    return (
+        "Every use case passes the internal AI risk gate before ranking; only shortlisted use cases get worked governance, "
+        f"while the gate excludes {exclusions}. "
+        "Source: data/use_cases.json, data/scoring_config.json, data/controls_trace.json, data/agent_accountability.json · synthetic data."
+    )
 
 
 def _column_class(header: str) -> str:
@@ -291,7 +297,7 @@ def _css() -> str:
 .value-chain-flow .shortlist rect{fill:var(--flow-shortlist-fill);stroke:var(--flow-shortlist-stroke);stroke-width:1.6}
 .value-chain-flow .ne rect{fill:var(--flow-ne-fill);stroke:var(--flow-ne-stroke);stroke-width:1.6;stroke-dasharray:5 3}
 .value-chain-flow .gov rect{fill:var(--flow-gov-fill);stroke:var(--flow-gov-stroke);stroke-width:1.6}
-.value-chain-flow .flow-arrow{fill:none;stroke:var(--flow-arrow);stroke-width:1.6}
+.value-chain-flow .flow-arrow{fill:none;stroke:var(--flow-arrow);stroke-width:1.5}
 .value-chain-flow .flow-arrow.dashed{stroke-dasharray:5 4}
 .value-chain-flow .arrowhead{fill:var(--flow-arrow)}
 body:not(.cs-page) #value-chain .flow-figure{margin:16px 0 24px;max-width:720px}
@@ -361,7 +367,7 @@ def _case_study_html_content() -> str:
     approach = (
         '<section class="case-study-section" id="approach"><h2>The approach</h2>'
         + f'{_approach_strip(len(cases), stage_summary, count_words.get(worked_count, str(worked_count)))}'
-        + _chart_figure(1, FLOW_FIGURE_TITLE, _value_chain_svg(), FLOW_FIGURE_CAPTION, "flow-figure")
+        + _chart_figure(1, FLOW_FIGURE_TITLE, _value_chain_svg(), _flow_figure_caption(), "flow-figure")
         + '</section>'
     )
 
@@ -670,7 +676,7 @@ def _html_content() -> str:
     body = ['<main id="top">']
     body.append(_kpis_html(cases, ranked, ineligible, config["default_max_risk"], config["shortlist_size"]))
     body.append(_approach_strip(len(cases), stage_summary, worked_count_text))
-    body.append(f'<section id="value-chain"><h2>Value chain</h2>{_chart_figure(1, FLOW_FIGURE_TITLE, _value_chain_svg(), FLOW_FIGURE_CAPTION, "flow-figure")}</section>')
+    body.append(f'<section id="value-chain"><h2>Value chain</h2>{_chart_figure(1, FLOW_FIGURE_TITLE, _value_chain_svg(), _flow_figure_caption(), "flow-figure")}</section>')
     body.extend([
         _priority_matrix(cases, ranked, ineligible, config["default_max_risk"]),
         _heatmap(cases, config["default_max_risk"]),

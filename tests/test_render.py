@@ -195,7 +195,8 @@ def test_dashboard_and_case_study_chart_figures_are_numbered_and_appetite_aware(
     assert re.search(r'<div class="fig-title">(.*?)</div>', case_figures[0][1]).group(1) == expected_titles[0]
 
     flow_caption = (
-        "Every use case passes the internal AI risk gate before ranking; only shortlisted use cases get worked governance. "
+        "Every use case passes the internal AI risk gate before ranking; only shortlisted use cases get worked governance, "
+        "while the gate excludes VC-02, VC-14 high · VC-03 unacceptable. "
         "Source: data/use_cases.json, data/scoring_config.json, data/controls_trace.json, data/agent_accountability.json · synthetic data."
     )
     matrix_caption = (
@@ -506,10 +507,17 @@ def test_build_outputs_are_deterministic_utf8_and_markdown_has_stage_tier_table(
         assert f">{count} use cases</text>" in svg
     for expected in (
         "Internal AI risk gate", "appetite: Medium", "Ranked shortlist", "top 5 of 11 eligible",
-        "Not eligible (3)", "VC-02, VC-14 high · VC-03 unacceptable", "24 controls", "10 actions",
+        "Not eligible (3)", "VC-02 · VC-14 · VC-03", "Controls trace", "24 controls", "Accountability", "10 agent actions",
     ):
         assert expected in svg
     assert svg.count("<marker ") == 1
+    marker = parsed.find(".//marker")
+    assert marker is not None
+    assert marker.attrib == {
+        "id": "flow-arrowhead", "markerUnits": "userSpaceOnUse", "viewBox": "0 0 7 7",
+        "markerWidth": "7", "markerHeight": "7", "refX": "7", "refY": "3.5", "orient": "auto",
+    }
+    assert marker.find("path").attrib["d"] == "M0,0 L7,3.5 L0,7 z"
     assert svg.count('<line class="flow-arrow') == 10
     assert not re.search(r'<(?:path|polyline|polygon)\b[^>]*class="flow-arrow', svg)
     assert ".diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}" in page
@@ -544,13 +552,21 @@ def test_flow_svg_boxes_and_straight_edges_stay_inside_viewbox(tmp_path):
     assert sum(line.attrib["data-source"].startswith("stage-") for line in lines) == 5
     stage_centres = {"distribution": 76, "underwriting": 216, "policy_admin": 356, "servicing": 496, "claims": 636}
     expected_points = {
-        **{(f"stage-{stage}", "gate"): (center, 68, min(max(center, 230), 490), 112) for stage, center in stage_centres.items()},
-        ("gate", "shortlist"): (360, 164, 200, 212),
-        ("gate", "ne"): (360, 164, 520, 212),
-        ("shortlist", "worked"): (200, 264, 200, 300),
-        ("worked", "controls"): (126, 352, 126, 392),
-        ("worked", "accountability"): (274, 352, 274, 392),
+        **{(f"stage-{stage}", "gate"): (center, 68, 262 + 49 * index, 112) for index, (stage, center) in enumerate(stage_centres.items())},
+        ("gate", "shortlist"): (360, 164, 360, 212),
+        ("gate", "ne"): (460, 164, 620, 212),
+        ("shortlist", "worked"): (360, 264, 360, 300),
+        ("worked", "controls"): (292, 352, 292, 392),
+        ("worked", "accountability"): (428, 352, 428, 392),
     }
+    assert boxes["gate"][:2] == (230.0, 112.0) and boxes["gate"][2:] == (260.0, 52.0)
+    assert boxes["shortlist"] == (230.0, 212.0, 260.0, 52.0)
+    assert boxes["worked"] == (230.0, 300.0, 260.0, 52.0)
+    assert boxes["ne"] == (530.0, 212.0, 180.0, 52.0)
+    assert boxes["controls"] == (230.0, 392.0, 124.0, 52.0)
+    assert boxes["accountability"] == (366.0, 392.0, 124.0, 52.0)
+    assert all(abs(boxes[key][0] + boxes[key][2] / 2 - 360) <= 1 for key in ("gate", "shortlist", "worked"))
+    assert abs((boxes["controls"][0] + boxes["controls"][2] / 2 - 360) + (boxes["accountability"][0] + boxes["accountability"][2] / 2 - 360)) <= 1
     for line in lines:
         source, target = line.attrib["data-source"], line.attrib["data-target"]
         x1, y1, x2, y2 = (float(line.attrib[key]) for key in ("x1", "y1", "x2", "y2"))
@@ -576,12 +592,24 @@ def test_flow_svg_boxes_and_straight_edges_stay_inside_viewbox(tmp_path):
                     a, b = (low - start) / delta, (high - start) / delta
                     t_low, t_high = max(t_low, min(a, b)), min(t_high, max(a, b))
             assert not (possible and max(t_low, 0.0) < min(t_high, 1.0)), f"edge {source}->{target} crosses {other_id}"
+    arrow_tips = [(float(line.attrib["x2"]), float(line.attrib["y2"])) for line in lines]
+    assert min(math.dist(first, second) for i, first in enumerate(arrow_tips) for second in arrow_tips[i + 1:]) >= 30
+
+    for group in root.findall(".//g"):
+        if "data-box" not in group.attrib:
+            continue
+        box_width = float(group.find("rect").attrib["width"]) - 16
+        title = "".join(group.find('text[@class="box-title"]').itertext())
+        detail = "".join(group.find('text[@class="box-detail"]').itertext())
+        assert len(title) * 7.4 <= box_width, f"title does not fit in {group.attrib['data-box']}: {title}"
+        assert len(detail) * 6.6 <= box_width, f"detail does not fit in {group.attrib['data-box']}: {detail}"
 
 
 def test_flow_svg_css_has_light_dark_classes_and_expected_dimensions(tmp_path):
     _, _, page, _, _ = _build(tmp_path)
     assert '.diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}' in page
     assert '.value-chain-flow .box-title{font:700 13px system-ui' in page
+    assert '.value-chain-flow .flow-arrow{fill:none;stroke:var(--flow-arrow);stroke-width:1.5}' in page
     assert '.value-chain-flow .gate rect{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke)' in page
     assert '.value-chain-flow .ne rect{fill:var(--flow-ne-fill);stroke:var(--flow-ne-stroke)' in page
     assert '--flow-gate-fill:#fff3d6' in page and '--flow-gate-fill:#4a3d17' in page
