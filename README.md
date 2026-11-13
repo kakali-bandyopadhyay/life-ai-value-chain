@@ -29,10 +29,7 @@ python -m pytest
 python -m ai_value_chain validate
 python -m ai_value_chain assess --appetite high --weights 5,3,2
 python -m ai_value_chain build
-powershell -ExecutionPolicy Bypass -File .\scripts\export_diagram.ps1
 ```
-
-(Needs Node; re-run the build afterwards.)
 
 ## File map
 
@@ -43,8 +40,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\export_diagram.ps1
   - [controls_trace.json](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/data/controls_trace.json) — worked-use-case control requirements, evidence and results.
   - [agent_accountability.json](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/data/agent_accountability.json) — permitted actions, tool boundaries and accountable roles.
 - [ai_value_chain/](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/tree/main/ai_value_chain/) contains [data.py](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/ai_value_chain/data.py), [scoring.py](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/ai_value_chain/scoring.py), [render.py](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/ai_value_chain/render.py) and [__main__.py](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/ai_value_chain/__main__.py).
-- [docs/](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/tree/main/docs/) contains the [live dashboard source](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/index.html), [assessment report](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/ASSESSMENT.md), [browser ranking functions](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/rank.js), [interactive panel](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/app.js) and [diagram files](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/tree/main/docs/diagrams/).
-- [scripts/export_diagram.ps1](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/scripts/export_diagram.ps1) exports the Mermaid diagram to SVG.
+- [docs/](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/tree/main/docs/) contains the [live dashboard source](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/index.html), [assessment report](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/ASSESSMENT.md), [browser ranking functions](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/rank.js) and [interactive panel](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/docs/app.js).
 - [tests/](https://github.com/kakali-bandyopadhyay/life-ai-value-chain/tree/main/tests/) contains the rendering, scoring, data validation and JavaScript parity tests, plus the Node parity runner.
 
 ## Boundaries

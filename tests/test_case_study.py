@@ -70,7 +70,19 @@ def test_case_study_hero_styles_and_static_page(tmp_path):
     assert page.count(favicon) == 1
     assert '<span class="hero-pill">Case study · simulated scenario · synthetic data · illustrative, not legal advice</span>' in page
     assert "<h1>Life and protection AI: which use cases go forward, under what controls</h1>" in page
-    assert "Which AI use cases should a UK life and protection insurer take forward, and under what controls?" in page
+    config = json.loads((REPO_ROOT / "data" / "scoring_config.json").read_text(encoding="utf-8"))
+    cases = load_use_cases()
+    medium_ranked, medium_ineligible = rank(cases, config["default_weights"], "medium")
+    high_ranked, _ = rank(cases, config["default_weights"], "high")
+    case_by_id = {case["use_case_id"]: case for case in cases}
+    shortlisted_agents = [row for row in medium_ranked if row["shortlisted"] and case_by_id[row["use_case_id"]]["worked_governance"]]
+    controls = load_controls()
+    control_count = sum(sum(control["use_case_id"] == row["use_case_id"] for control in controls) for row in shortlisted_agents)
+    expected_outcome = (
+        f"{len(cases)} use cases assessed · the risk gate removed {len(medium_ineligible)}, including the top-scoring idea at High appetite "
+        f"({high_ranked[0]['use_case_id']}) · {len(shortlisted_agents)} shortlisted agents carry {control_count} traced controls."
+    )
+    assert f'<p class="hero-question case-study-outcome">{expected_outcome}</p>' in page
     assert '<a class="hero-button primary" href="../">Open the live dashboard</a>' in page
     assert '<a class="hero-button outline" href="https://github.com/kakali-bandyopadhyay/life-ai-value-chain">Code</a>' in page
     chips = re.search(r'<div class="hero-chips">(.*?)</div>', page).group(1)
@@ -78,7 +90,11 @@ def test_case_study_hero_styles_and_static_page(tmp_path):
         "UK", "GBP", "Individual life", "Group life &amp; disability", "Income protection", "Annuities"
     ]
     assert "<script" not in page.casefold()
-    assert ".case-study-hero{padding:24px 0 32px}" in page
+    assert ".case-study-hero{padding:20px 0 28px}" in page
+    assert ".case-study-hero h1{font-size:26px;line-height:1.2}" in page
+    assert "@media(max-width:759px){.case-study-hero h1{font-size:22px}" in page
+    assert ".article-main{box-sizing:border-box;width:100%;max-width:820px;margin:0 auto;padding:28px 16px 36px}" in page
+    assert ".article-main>.case-study-section:first-child h2{margin-top:0}" in page
     assert "max-width:820px;margin:0 auto" in page
     assert "body{font-size:15px;line-height:1.6}" in page
     assert ".article-main h2{font-size:20px}.article-main h3{font-size:16px}" in page
@@ -119,7 +135,7 @@ def test_problem_approach_and_computed_gate_table(tmp_path):
     assert "Ranked #1 at Medium" in gate_part
     assert "Automated Underwriting Acceptance with Premium Loadings" in gate_part
     assert "Not eligible at any appetite" in gate_part
-    assert "<img class=\"diagram\" src=\"../diagrams/value_chain.svg\"" in page
+    assert '<svg class="diagram value-chain-flow" viewBox="0 0 720 330"' in page
     assert "<strong>Assess</strong>" in page and "<strong>Gate</strong>" in page and "<strong>Prioritise and govern</strong>" in page
     assert table_position > page.index('id="gate"')
     assert len(parser.tables) == 1
@@ -176,12 +192,12 @@ def test_links_tables_boundaries_and_dashboard_button(tmp_path):
     assert '<a class="hero-button outline" href="case-study/">Read the case study</a>' in dashboard
     assert dashboard.index("Worked governance</a>") < dashboard.index("Read the case study</a>")
     assert (REPO_ROOT / "docs" / "index.html").is_file()
-    assert (REPO_ROOT / "docs" / "diagrams" / "value_chain.svg").is_file()
     dashboard_ids = set(re.findall(r'\bid="([^"]+)"', dashboard))
     assert {"VC-01", "VC-05"}.issubset(dashboard_ids)
     assert "../" in parser.hrefs
     assert "../#VC-01" in parser.hrefs and "../#VC-05" in parser.hrefs
-    assert "../diagrams/value_chain.svg" in page
+    assert '<svg class="diagram value-chain-flow"' in page
+    assert not re.search(r'<img\b[^>]*src=["\'][^"\']*diagrams/', dashboard + page, flags=re.I)
     assert '<p>MIT licence</p>' in page
     visible_text = html.unescape(re.sub(r"<[^>]+>", " ", page)).casefold()
     for banned in ("fca", "pra", "solvency ii", "consumer duty", "gdpr", "ico"):
@@ -199,7 +215,7 @@ def test_links_tables_boundaries_and_dashboard_button(tmp_path):
 def test_case_study_and_dashboard_builds_are_deterministic_utf8_lf(tmp_path):
     dashboard, report = build(tmp_path)
     case_study = tmp_path / "case-study" / "index.html"
-    paths = (dashboard, report, case_study, tmp_path / "diagrams" / "value_chain.mmd")
+    paths = (dashboard, report, case_study)
     first = tuple(path.read_bytes() for path in paths)
     assert all(not content.startswith(b"\xef\xbb\xbf") and b"\r\n" not in content for content in first)
     build(tmp_path)

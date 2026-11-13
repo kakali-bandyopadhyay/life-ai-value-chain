@@ -39,10 +39,10 @@ def test_readme_sections_commands_boundaries_and_data_counts():
         "python -m ai_value_chain validate",
         "python -m ai_value_chain assess --appetite high --weights 5,3,2",
         "python -m ai_value_chain build",
-        r"powershell -ExecutionPolicy Bypass -File .\scripts\export_diagram.ps1",
     ):
         assert command in readme
-    assert "(Needs Node; re-run the build afterwards.)" in readme
+    assert "export_diagram" not in readme
+    assert "docs/diagrams" not in readme
     assert not re.search(r"<\s*/?\s*[A-Za-z][^>]*>", readme)
     assert "![" not in readme
     assert not re.search(r"^\s*Personal prototype\b", readme, re.IGNORECASE | re.MULTILINE)

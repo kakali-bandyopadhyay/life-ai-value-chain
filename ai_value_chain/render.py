@@ -90,54 +90,84 @@ def _ranked_data() -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]
     return config, scenario, cases, ranked, ineligible
 
 
-def _mermaid_text(value: str) -> str:
-    return value.replace("&", "#amp;").replace('"', "#quot;").replace("\n", " ")
-
-
-def _diagram_source() -> str:
-    """Create a deterministic Mermaid summary from the supplied assessment data."""
+def _value_chain_svg() -> str:
+    """Render an accessible, data-derived value-chain flow diagram as inline SVG."""
     config, scenario, cases, ranked, ineligible = _ranked_data()
     appetite = RISK_LABELS[config["default_max_risk"]]
     stage_counts = Counter(row["value_chain_stage"] for row in cases)
-    worked = sorted((row for row in cases if row["worked_governance"]), key=lambda row: row["use_case_id"])
+    by_id = {row["use_case_id"]: row for row in cases}
     high_ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "high")
     unacceptable_ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "unacceptable")
-    not_eligible_lines = [f'{", ".join(high_ids)} · high'] if high_ids else []
-    not_eligible_lines.extend(f"{use_case_id} · unacceptable" for use_case_id in unacceptable_ids)
-    worked_lines = [f'{row["use_case_id"]} {_mermaid_text(row["name"])}' for row in worked]
+    ineligible_detail = []
+    if high_ids:
+        ineligible_detail.append(f'{", ".join(high_ids)} high')
+    if unacceptable_ids:
+        ineligible_detail.append(f'{", ".join(unacceptable_ids)} unacceptable')
+    ineligible_label = " · ".join(ineligible_detail)
+    worked_ids = sorted(row["use_case_id"] for row in cases if row["worked_governance"])
     controls_count = len(load_controls())
     actions_count = len(load_actions())
-    stages = (
-        ("S1", "distribution"),
-        ("S2", "underwriting"),
-        ("S3", "policy_admin"),
-        ("S4", "servicing"),
-        ("S5", "claims"),
+    stage_order = ("distribution", "underwriting", "policy_admin", "servicing", "claims")
+    stage_x = (4, 144, 284, 424, 564)
+    stage_parts = []
+    for stage, x in zip(stage_order, stage_x):
+        stage_parts.append(
+            f'<g class="stage"><rect x="{x}" y="16" width="132" height="52" rx="7"/>'
+            f'<text x="{x + 66}" y="37" text-anchor="middle"><tspan class="label">{_esc(STAGE_LABELS[stage])}</tspan></text>'
+            f'<text x="{x + 66}" y="54" text-anchor="middle">{stage_counts[stage]} use cases</text></g>'
+        )
+    stage_connectors = []
+    for stage_center, gate_x in zip((70, 210, 350, 490, 630), (244, 302, 360, 418, 476)):
+        stage_connectors.append(
+            f'<path class="flow-arrow" d="M{stage_center} 68 L{gate_x} 110" marker-end="url(#flow-arrowhead)"/>'
+        )
+    worked_text = " · ".join(worked_ids)
+    return (
+        '<svg class="diagram value-chain-flow" viewBox="0 0 720 330" role="img" aria-labelledby="value-chain-title value-chain-desc">'
+        '<title id="value-chain-title">Value chain assessment and governance flow</title>'
+        f'<desc id="value-chain-desc">{len(cases)} use cases across five stages pass through an internal AI risk gate at {html.escape(appetite)} appetite. '
+        f'{len(ineligible)} are not eligible; the ranked shortlist flows to worked governance, {controls_count} controls and {actions_count} accountability actions.</desc>'
+        '<defs><marker id="flow-arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrowhead" d="M0 0 L10 5 L0 10 z"/></marker></defs>'
+        + "".join(stage_connectors)
+        + '<path class="flow-arrow" d="M360 162 L190 204" marker-end="url(#flow-arrowhead)"/>'
+        + '<path class="flow-arrow dashed" d="M360 162 L530 204" marker-end="url(#flow-arrowhead)"/>'
+        + '<path class="flow-arrow" d="M190 256 L190 270" marker-end="url(#flow-arrowhead)"/>'
+        + '<path class="flow-arrow" d="M340 296 L380 296" marker-end="url(#flow-arrowhead)"/>'
+        + '<path class="flow-arrow" d="M340 280 L362 262 L546 262 L546 296" marker-end="url(#flow-arrowhead)"/>'
+        + "".join(stage_parts)
+        + '<g class="gate"><polygon points="244,110 476,110 490,136 476,162 244,162 230,136"/>'
+        + '<text x="360" y="132" text-anchor="middle"><tspan class="label">Internal AI risk gate</tspan></text>'
+        + f'<text x="360" y="150" text-anchor="middle">appetite: {html.escape(appetite)}</text></g>'
+        + '<g class="shortlist"><rect x="40" y="204" width="300" height="52" rx="7"/>'
+        + '<text x="190" y="226" text-anchor="middle"><tspan class="label">Ranked shortlist</tspan></text>'
+        + f'<text x="190" y="245" text-anchor="middle">top {config["shortlist_size"]} of {len(ranked)} eligible</text></g>'
+        + f'<g class="ne"><rect x="380" y="204" width="300" height="52" rx="7"/><text x="530" y="226" text-anchor="middle"><tspan class="label">Not eligible ({len(ineligible)})</tspan></text>'
+        + f'<text x="530" y="245" text-anchor="middle">{html.escape(ineligible_label)}</text></g>'
+        + '<g class="gov"><rect x="40" y="270" width="300" height="52" rx="7"/>'
+        + '<text x="190" y="291" text-anchor="middle"><tspan class="label">Worked governance</tspan></text>'
+        + f'<text x="190" y="310" text-anchor="middle">{html.escape(worked_text)}</text></g>'
+        + '<g class="gov"><rect x="380" y="270" width="150" height="52" rx="7"/>'
+        + '<text x="455" y="291" text-anchor="middle"><tspan class="label">Controls trace</tspan></text>'
+        + f'<text x="455" y="310" text-anchor="middle">{controls_count} controls</text></g>'
+        + '<g class="gov"><rect x="546" y="270" width="150" height="52" rx="7"/>'
+        + '<text x="621" y="291" text-anchor="middle"><tspan class="label">Agent accountability</tspan></text>'
+        + f'<text x="621" y="310" text-anchor="middle">{actions_count} actions</text></g>'
+        + "</svg>"
     )
-    lines = [
-        '%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 36, "curve": "basis"}, "themeVariables": {"fontSize": "14px"}}}%%',
-        "flowchart LR",
-        '  subgraph VC["Value chain"]',
-        "    direction TB",
-    ]
-    for node_id, stage in stages:
-        lines.append(f'    {node_id}["{STAGE_LABELS[stage]}<br/>{stage_counts[stage]} use cases"]')
-    lines.extend([
-        "    S1 ~~~ S2 ~~~ S3 ~~~ S4 ~~~ S5",
-        "  end",
-        f'  VC --> GATE{{{{"Internal AI risk gate<br/>appetite: {appetite}"}}}}',
-        f'  GATE --> SL["Ranked shortlist<br/>top {config["shortlist_size"]} of {len(ranked)} eligible"]',
-        f'  GATE -.-> NE["Not eligible ({len(ineligible)})<br/>{"<br/>".join(not_eligible_lines)}"]',
-        f'  SL --> GOV["Worked governance<br/>{"<br/>".join(worked_lines)}"]',
-        f'  GOV --> CT["Controls trace<br/>{controls_count} controls"]',
-        f'  GOV --> AA["Agent accountability<br/>{actions_count} actions"]',
-        "  classDef gate fill:#fff3d6,stroke:#b26a00;",
-        "  classDef ne fill:#fdeaea,stroke:#b71c1c,stroke-dasharray:4 3;",
-        "  classDef sl fill:#e0f2f1,stroke:#00695c;",
-        "  classDef gov fill:#ffffff,stroke:#00695c",
-        "  class GATE gate; class NE ne; class SL sl; class GOV,CT,AA gov",
-    ])
-    return "\n".join(lines) + "\n"
+
+
+def _chart_figure(number: int, title: str, chart: str, caption: str, figure_class: str) -> str:
+    return (
+        f'<figure class="chart-figure {figure_class}"><div class="fig-title">Figure {number} · {_esc(title)}</div>'
+        f'{chart}<figcaption>{caption}</figcaption></figure>'
+    )
+
+
+FLOW_FIGURE_TITLE = "From candidate use cases to governed agents"
+FLOW_FIGURE_CAPTION = (
+    "Every use case passes the internal AI risk gate before ranking; only shortlisted use cases get worked governance. "
+    "Source: data/use_cases.json, data/scoring_config.json, data/controls_trace.json, data/agent_accountability.json · synthetic data."
+)
 
 
 def _column_class(header: str) -> str:
@@ -239,9 +269,9 @@ def _stats_html(rows: list[dict[str, Any]]) -> str:
 
 def _css() -> str:
     return """<style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#202631;--muted:#657080;--surface:#f4f6f8;--border:#d3d9e0;--link:#1456a0;--accent:#087e8b;--matrix-eligible:#cfe8ef;--grid:#d3d9e0;--chip-bg:#e7ebef;--chip-fg:#3d4752;--tier-low-fg:#1b5e20;--tier-low-bg:#e8f5e9;--tier-medium-fg:#7a4a00;--tier-medium-bg:#fff3d6;--tier-high-fg:#b71c1c;--tier-high-bg:#fdeaea;--tier-unacceptable-fg:#fff;--tier-unacceptable-bg:#7f1d1d;--pass-fg:#14532d;--pass-bg:#dff3e5;--fail-fg:#8b1e1e;--fail-bg:#fbe2e2;--not-tested-fg:#475569;--not-tested-bg:#eef2f6;--agent-yes-fg:#075e63;--agent-yes-bg:#d9f2f0;--agent-no-fg:#475569;--agent-no-bg:#eef2f6;--shortlisted-fg:#fff;--shortlisted-bg:#087e8b;--eligible-fg:#087e8b;--eligible-bg:transparent;--not-eligible-fg:#b71c1c;--not-eligible-bg:transparent;--heat-neutral:#f1f5f9;--heat-count-outline:#334155;--heat-low:#e8f5e9;--heat-medium:#fff3d6;--heat-high:#fdeaea;--heat-unacceptable:#7f1d1d;--gated-stroke:#b71c1c}
+:root{color-scheme:light dark;--bg:#fff;--fg:#202631;--muted:#657080;--surface:#f4f6f8;--border:#d3d9e0;--link:#1456a0;--accent:#087e8b;--matrix-eligible:#cfe8ef;--grid:#d3d9e0;--chip-bg:#e7ebef;--chip-fg:#3d4752;--tier-low-fg:#1b5e20;--tier-low-bg:#e8f5e9;--tier-medium-fg:#7a4a00;--tier-medium-bg:#fff3d6;--tier-high-fg:#b71c1c;--tier-high-bg:#fdeaea;--tier-unacceptable-fg:#fff;--tier-unacceptable-bg:#7f1d1d;--pass-fg:#14532d;--pass-bg:#dff3e5;--fail-fg:#8b1e1e;--fail-bg:#fbe2e2;--not-tested-fg:#475569;--not-tested-bg:#eef2f6;--agent-yes-fg:#075e63;--agent-yes-bg:#d9f2f0;--agent-no-fg:#475569;--agent-no-bg:#eef2f6;--shortlisted-fg:#fff;--shortlisted-bg:#087e8b;--eligible-fg:#087e8b;--eligible-bg:transparent;--not-eligible-fg:#b71c1c;--not-eligible-bg:transparent;--heat-neutral:#f1f5f9;--heat-count-outline:#334155;--heat-low:#e8f5e9;--heat-medium:#fff3d6;--heat-high:#fdeaea;--heat-unacceptable:#7f1d1d;--gated-stroke:#b71c1c;--flow-stage-fill:#f4f6f8;--flow-stage-stroke:#64748b;--flow-gate-fill:#fff3d6;--flow-gate-stroke:#b26a00;--flow-shortlist-fill:#e0f2f1;--flow-shortlist-stroke:#00695c;--flow-ne-fill:#fdeaea;--flow-ne-stroke:#b71c1c;--flow-gov-fill:#fff;--flow-gov-stroke:#00695c;--flow-arrow:#657080}
 :root{--hero-start:#0b4f5c;--hero-end:#0f766e;--kpi-assessed:#94a3b8;--kpi-eligible:#14b8a6;--kpi-shortlisted:#0f766e;--kpi-ineligible:#b71c1c}
-@media(prefers-color-scheme:dark){:root{--bg:#111820;--fg:#e7edf3;--muted:#a6b1bd;--surface:#1b2530;--border:#354352;--link:#8ab4f8;--accent:#27a9b5;--matrix-eligible:#24444d;--grid:#354352;--chip-bg:#26313d;--chip-fg:#d5dde5;--tier-low-fg:#a7d8ad;--tier-low-bg:#173c29;--tier-medium-fg:#f1d28a;--tier-medium-bg:#4a3d17;--tier-high-fg:#f1a3a3;--tier-high-bg:#4a2226;--tier-unacceptable-fg:#fff;--tier-unacceptable-bg:#450a0a;--pass-fg:#a7d8ad;--pass-bg:#173c29;--fail-fg:#f1a3a3;--fail-bg:#4a2226;--not-tested-fg:#cbd5e1;--not-tested-bg:#26313d;--agent-yes-fg:#8dddd5;--agent-yes-bg:#123d40;--agent-no-fg:#cbd5e1;--agent-no-bg:#26313d;--shortlisted-fg:#062f37;--shortlisted-bg:#54abc2;--eligible-fg:#54c4ca;--eligible-bg:transparent;--not-eligible-fg:#f1a3a3;--not-eligible-bg:transparent;--heat-neutral:#26313d;--heat-count-outline:#0f172a;--heat-low:#173c29;--heat-medium:#4a3d17;--heat-high:#4a2226;--heat-unacceptable:#450a0a;--gated-stroke:#f1a3a3;--hero-start:#062f37;--hero-end:#0b4f5c}}
+@media(prefers-color-scheme:dark){:root{--bg:#111820;--fg:#e7edf3;--muted:#a6b1bd;--surface:#1b2530;--border:#354352;--link:#8ab4f8;--accent:#27a9b5;--matrix-eligible:#24444d;--grid:#354352;--chip-bg:#26313d;--chip-fg:#d5dde5;--tier-low-fg:#a7d8ad;--tier-low-bg:#173c29;--tier-medium-fg:#f1d28a;--tier-medium-bg:#4a3d17;--tier-high-fg:#f1a3a3;--tier-high-bg:#4a2226;--tier-unacceptable-fg:#fff;--tier-unacceptable-bg:#450a0a;--pass-fg:#a7d8ad;--pass-bg:#173c29;--fail-fg:#f1a3a3;--fail-bg:#4a2226;--not-tested-fg:#cbd5e1;--not-tested-bg:#26313d;--agent-yes-fg:#8dddd5;--agent-yes-bg:#123d40;--agent-no-fg:#cbd5e1;--agent-no-bg:#26313d;--shortlisted-fg:#062f37;--shortlisted-bg:#54abc2;--eligible-fg:#54c4ca;--eligible-bg:transparent;--not-eligible-fg:#f1a3a3;--not-eligible-bg:transparent;--heat-neutral:#26313d;--heat-count-outline:#0f172a;--heat-low:#173c29;--heat-medium:#4a3d17;--heat-high:#4a2226;--heat-unacceptable:#450a0a;--gated-stroke:#f1a3a3;--flow-stage-fill:#1b2530;--flow-stage-stroke:#64748b;--flow-gate-fill:#4a3d17;--flow-gate-stroke:#f1d28a;--flow-shortlist-fill:#123d40;--flow-shortlist-stroke:#54c4ca;--flow-ne-fill:#4a2226;--flow-ne-stroke:#f1a3a3;--flow-gov-fill:#1b2530;--flow-gov-stroke:#54c4ca;--flow-arrow:#a6b1bd;--hero-start:#062f37;--hero-end:#0b4f5c}}
 *{box-sizing:border-box}html,body{margin:0;width:100%;max-width:100%;background:var(--bg);color:var(--fg)}body{font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{width:100%;max-width:1200px;margin:0 auto;padding:0 16px 36px}.hero{width:100%;padding:28px 0 60px;background:linear-gradient(135deg,var(--hero-start) 0%,var(--hero-end) 100%);color:#fff}.hero-inner{width:100%;max-width:1200px;margin:0 auto;padding:0 16px}.hero-pill{display:inline-block;font-size:11px;letter-spacing:.02em;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35)}.hero h1{font-size:30px;line-height:1.2;font-weight:700;margin:12px 0 6px}.hero-question{font-size:16px;line-height:1.4;opacity:.9;max-width:680px;margin:0}.hero-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}.hero-chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.12);white-space:nowrap}.hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.hero-button{display:inline-flex;align-items:center;justify-content:center;font-size:13px;padding:8px 14px;border-radius:6px;font-weight:600;text-decoration:none}.hero-button.primary{background:#fff;color:#0b4f5c}.hero-button.outline{background:transparent;border:1px solid #fff;color:#fff}h1{font-size:28px;line-height:1.25;margin:24px 0 8px}h2{font-size:20px;line-height:1.3;margin:36px 0 10px}h3{font-size:16px;line-height:1.35;margin:0}h4{font-size:16px;margin:18px 0 6px}p{margin:8px 0 12px}a{color:var(--link);overflow-wrap:break-word}.topline{font-weight:650}.scenario-line{font-weight:600}.site-links{display:flex;flex-wrap:wrap;gap:6px 16px;margin:12px 0 20px}.context p{margin:4px 0}.how-to-read{display:grid;box-sizing:border-box;width:100%;max-width:1200px;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:28px 0}.read-card{box-sizing:border-box;min-width:0;padding:12px 14px;border-left:3px solid #0f766e;background:var(--surface);border-radius:8px;font-size:13px;line-height:1.45}.read-card-heading{display:flex;align-items:center;gap:8px}.step-badge{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;flex:0 0 22px;border-radius:50%;background:#0f766e;color:#fff;font-size:12px;font-weight:700}.read-card-heading strong{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}.read-card p{margin:8px 0 0}.kpis{display:flex;align-items:stretch;box-sizing:border-box;width:100%;max-width:880px;margin:-40px 0 0;gap:12px;position:relative;z-index:1}.kpi{box-sizing:border-box;flex:1 1 0;min-width:0;background:var(--surface);border:1px solid var(--border);border-top:3px solid var(--kpi-border,var(--border));border-radius:10px;padding:12px 16px;box-shadow:0 6px 20px rgba(0,0,0,.08)}.kpi-assessed{--kpi-border:var(--kpi-assessed)}.kpi-eligible{--kpi-border:var(--kpi-eligible)}.kpi-shortlisted{--kpi-border:var(--kpi-shortlisted)}.kpi-ineligible{--kpi-border:var(--kpi-ineligible)}.kpi-main{display:flex;align-items:baseline;gap:8px;min-width:0}.kpi strong{font-size:24px;font-weight:700;line-height:1.2}.kpi-label{display:block;font-size:13px;min-width:0;white-space:nowrap}.kpi-caption{display:block;font-size:11px;color:var(--muted);margin-top:3px}.scroll{width:100%;max-width:100%;overflow-x:visible;margin:10px 0 18px;border:1px solid var(--border);border-radius:7px}table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:14px;line-height:1.35}th,td{text-align:left;vertical-align:top;padding:6px 3px;border-bottom:1px solid var(--border);overflow-wrap:break-word}th{background:var(--surface);font-weight:700}th.id-cell,td.id-cell,th.num,td.num,.chip,.date{white-space:nowrap}th.num,td.num{text-align:center;font-variant-numeric:tabular-nums}tbody tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:color-mix(in srgb,var(--surface) 55%,transparent)}.date{font-size:12px}.status{font-size:10px;padding:2px 3px}.chip{display:inline-block;font-size:12px;padding:2px 7px;border-radius:999px;line-height:1.35;vertical-align:middle;border:1px solid transparent}.tier-low{color:var(--tier-low-fg);background:var(--tier-low-bg)}.tier-medium{color:var(--tier-medium-fg);background:var(--tier-medium-bg)}.tier-high{color:var(--tier-high-fg);background:var(--tier-high-bg)}.tier-unacceptable{color:var(--tier-unacceptable-fg);background:var(--tier-unacceptable-bg)}.result-pass{color:var(--pass-fg);background:var(--pass-bg)}.result-fail{color:var(--fail-fg);background:var(--fail-bg)}.result-not-tested{color:var(--not-tested-fg);background:var(--not-tested-bg)}.agent-yes{color:var(--agent-yes-fg);background:var(--agent-yes-bg)}.agent-no{color:var(--agent-no-fg);background:var(--agent-no-bg)}.status-shortlisted{color:var(--shortlisted-fg);background:var(--shortlisted-bg)}.status-eligible{color:var(--eligible-fg);background:var(--eligible-bg);border-color:var(--eligible-fg)}.status-not-eligible{color:var(--not-eligible-fg);background:var(--not-eligible-bg);border-color:var(--not-eligible-fg)}.family-chip{font-size:11px;margin-top:3px}.evidence-description{display:block;font-size:12px;line-height:1.3;margin-top:4px}.result-detail{display:block;white-space:normal;overflow-wrap:break-word;font-size:12px;margin-top:6px;line-height:1.4}.log-field{font:12px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all}.control-requirement{font-size:14px}.control-description{font-size:13px;margin-top:4px}.stats{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.governance-card{border:1px solid var(--border);border-radius:12px;padding:20px;margin:0 0 24px}.card-heading{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px}.card-heading h3{flex:1 1 240px}.matrix-wrap{width:100%;max-width:600px;margin:0 auto}.chart{display:block;width:100%;height:auto}.chart text{fill:var(--fg);font:12px system-ui,sans-serif}.chart .axis-title{font-size:12px;font-weight:700}.chart .matrix-label{font-size:11px}.chart .gridline{stroke:var(--grid);stroke-width:1}.chart .axis{stroke:var(--muted);stroke-width:1}.chart .shortlisted-point{fill:var(--accent);stroke:var(--accent);stroke-width:2}.chart .eligible-point{fill:var(--matrix-eligible);stroke:var(--accent);stroke-width:2}.chart .gated-point{fill:transparent;stroke:var(--gated-stroke);stroke-width:2;stroke-dasharray:4 3}.heatmap-wrap{width:100%;max-width:520px;margin:0 auto}.heatmap-chart{display:block;width:100%;height:auto}.chart .heat-low{--heat-tier:var(--heat-low)}.chart .heat-medium{--heat-tier:var(--heat-medium)}.chart .heat-high{--heat-tier:var(--heat-high)}.chart .heat-unacceptable{--heat-tier:var(--heat-unacceptable)}.chart .heat-cell{stroke:var(--border);stroke-width:1}.chart .heat-cell.heat-c0{fill:var(--heat-neutral);fill-opacity:1}.chart .heat-cell.heat-c1{fill:var(--heat-tier);fill-opacity:.35}.chart .heat-cell.heat-c2{fill:var(--heat-tier);fill-opacity:.6}.chart .heat-cell.heat-c3{fill:var(--heat-tier);fill-opacity:.85}.chart .heat-count{font-size:18px;font-weight:700}.chart .heat-count.heat-c0{fill:var(--muted)}.chart .heat-count.heat-c1,.chart .heat-count.heat-c2{fill:var(--fg)}.chart .heat-count.heat-c3{fill:#fff;stroke:var(--heat-count-outline);stroke-width:1px;paint-order:stroke}.chart .heat-header{font-size:13px;font-weight:700}.chart .appetite-line{stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}.chart .appetite-label{font-size:12px;font-weight:700}.chart .heat-text-low{fill:var(--tier-low-fg)}.chart .heat-text-medium{fill:var(--tier-medium-fg)}.chart .heat-text-high{fill:var(--tier-high-fg)}.chart .heat-text-unacceptable{fill:var(--tier-unacceptable-fg)}.chart .appetite-line{stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}.matrix-legend{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:8px 16px;font-size:12px;margin:2px auto 6px}.legend-item{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.legend-mark{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--accent)}.legend-mark.eligible{background:var(--bg);border:1.5px solid var(--accent)}.legend-mark.gated{background:transparent;border:1.5px dashed var(--gated-stroke)}.diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}.chart-figure{margin:10px 0 18px}figcaption{color:var(--muted);font-size:14px}.formula{border:1px solid var(--border);background:var(--surface);padding:12px 14px;border-radius:8px;font:14px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:break-word}footer{border-top:1px solid var(--border);margin-top:30px;padding-top:12px;color:var(--muted)}
  .explorer-panel{box-sizing:border-box;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);margin:12px 0}.explorer-panel h3{margin:0}.explorer-hint{font-size:13px;color:var(--muted);margin:4px 0 12px}.explorer-controls{display:grid;box-sizing:border-box;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.weight-control{box-sizing:border-box;min-width:0}.weight-label-row{display:flex;justify-content:space-between;gap:8px;font-size:13px}.weight-label-row output{font-variant-numeric:tabular-nums}.weight-control input[type=range]{display:block;width:100%;margin:8px 0 0;accent-color:#0f766e}.risk-fieldset{box-sizing:border-box;min-width:0;margin:0;padding:0;border:0}.risk-fieldset legend{font-size:13px;margin-bottom:6px}.appetite-options{display:flex;gap:6px}.appetite-option{position:relative;flex:1 1 0;min-width:0;text-align:center;font-size:13px}.appetite-option input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}.appetite-option span{display:block;padding:5px 8px;border:1px solid var(--border);border-radius:6px;cursor:pointer}.appetite-option input:checked+span{background:#0f766e;color:#fff;border-color:#0f766e}.appetite-option input:focus-visible+span{outline:2px solid #0b4f5c;outline-offset:2px}.explorer-actions{display:flex;align-items:center;gap:12px;margin-top:12px}.stage-filters{display:flex;flex-wrap:wrap;gap:6px}.stage-chip,.reset-ranking{font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border:1px solid var(--border);border-radius:999px;padding:5px 10px;background:var(--bg);color:var(--fg);cursor:pointer}.stage-chip{white-space:nowrap}.stage-chip[aria-pressed=true]{background:#0f766e;color:#fff;border-color:#0f766e}.reset-ranking{margin-left:auto;white-space:nowrap}.explorer-formula{margin-top:12px}.weight-error{color:#b71c1c;font-size:13px;margin:6px 0 0}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.row-detail{box-sizing:border-box;margin:12px 0 0;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.detail-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.detail-heading h3{margin:0}.detail-close{border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg);color:var(--fg);cursor:pointer}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;margin-top:12px}.detail-field{min-width:0;font-size:13px;overflow-wrap:break-word}.detail-field strong{display:block;font-size:12px;color:var(--muted)}.detail-rationales{margin-top:12px}.detail-rationales p{font-size:13px;margin:6px 0}.detail-governance{font-size:13px;margin-top:12px}.ranked-table tr.is-selected td,.ineligible-table tr.is-selected td{background:color-mix(in srgb,#0f766e 10%,var(--surface))}.ranked-table tr.is-selected td:first-child,.ineligible-table tr.is-selected td:first-child{border-left:3px solid #0f766e}.formula-error{color:#b71c1c}
 @media(min-width:1100px){.explorer-controls{grid-template-columns:repeat(4,minmax(0,1fr))}}
@@ -250,11 +280,28 @@ def _css() -> str:
 @media(max-width:759px){.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.how-to-read{grid-template-columns:1fr}.scroll{overflow-x:auto}}
 @media(max-width:419px){.kpis{grid-template-columns:1fr}}
 @media(max-width:759px){.hero h1{font-size:24px}}
+.value-chain-flow text{font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:var(--fg)}
+.value-chain-flow .label{font-weight:700}
+.value-chain-flow .stage rect{fill:var(--flow-stage-fill);stroke:var(--flow-stage-stroke);stroke-width:1.4}
+.value-chain-flow .gate polygon{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke);stroke-width:1.6}
+.value-chain-flow .shortlist rect{fill:var(--flow-shortlist-fill);stroke:var(--flow-shortlist-stroke);stroke-width:1.6}
+.value-chain-flow .ne rect{fill:var(--flow-ne-fill);stroke:var(--flow-ne-stroke);stroke-width:1.6;stroke-dasharray:5 3}
+.value-chain-flow .gov rect{fill:var(--flow-gov-fill);stroke:var(--flow-gov-stroke);stroke-width:1.6}
+.value-chain-flow .flow-arrow{fill:none;stroke:var(--flow-arrow);stroke-width:1.6}
+.value-chain-flow .flow-arrow.dashed{stroke-dasharray:5 4}
+.value-chain-flow .arrowhead{fill:var(--flow-arrow)}
+.chart-figure{box-sizing:border-box;width:100%;max-width:720px;margin:24px auto;border-top:1px solid var(--border);padding-top:12px}
+.chart-figure .fig-title,.chart-figure figcaption{box-sizing:border-box;width:100%;max-width:var(--figure-chart-width,720px);margin-left:auto;margin-right:auto;text-align:left}
+.fig-title{font-size:14px;font-weight:700;margin-bottom:8px}
+.chart-figure figcaption{color:var(--muted);font-size:12px;max-width:var(--figure-chart-width,720px);margin-top:8px}
+.flow-figure{--figure-chart-width:720px}
+.matrix-figure{--figure-chart-width:600px}
+.heatmap-figure{--figure-chart-width:520px}
 </style>"""
 
 
 def _case_study_css() -> str:
-    extra = """body{font-size:15px;line-height:1.6}.case-study-hero{padding:24px 0 32px}.case-study-hero .hero-inner{max-width:820px}.article-main{box-sizing:border-box;width:100%;max-width:820px;margin:0 auto;padding:24px 16px 36px}.article-main h2{font-size:20px}.article-main h3{font-size:16px}.case-study-section{margin:0 0 28px}.case-study-section .how-to-read{margin:0 0 18px}.case-study-card{border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.case-study-card h3{margin:0}.permission-list,.finding-list{padding-left:22px}.permission-list li,.finding-list li{margin:5px 0}.two-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.two-columns>div{min-width:0;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}.article-main .diagram{max-width:720px}.case-study-footer{margin-top:36px}@media(max-width:759px){.two-columns{grid-template-columns:1fr}}"""
+    extra = """body{font-size:15px;line-height:1.6}.case-study-hero{padding:20px 0 28px}.case-study-hero .hero-inner{max-width:820px}.case-study-hero h1{font-size:26px;line-height:1.2}.article-main{box-sizing:border-box;width:100%;max-width:820px;margin:0 auto;padding:28px 16px 36px}.article-main>.case-study-section:first-child h2{margin-top:0}.article-main h2{font-size:20px}.article-main h3{font-size:16px}.case-study-section{margin:0 0 28px}.case-study-section .how-to-read{margin:0 0 18px}.case-study-card{border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.case-study-card h3{margin:0}.permission-list,.finding-list{padding-left:22px}.permission-list li,.finding-list li{margin:5px 0}.two-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.two-columns>div{min-width:0;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}.article-main .diagram{max-width:720px}.case-study-footer{margin-top:36px}@media(max-width:759px){.case-study-hero h1{font-size:22px}.two-columns{grid-template-columns:1fr}}"""
     return _css().replace("</style>", extra + "</style>")
 
 
@@ -267,7 +314,12 @@ def _case_study_html_content() -> str:
     high_by_id = {case["use_case_id"]: case for case in high_ranked}
     medium_top = medium_ranked[0]
     high_top = high_ranked[0]
-    question = f"Which AI use cases should a {scenario['insurer'].removeprefix('Simulated ')} take forward, and under what controls?"
+    shortlisted_agents = [row for row in medium_ranked if row["shortlisted"] and case_by_id[row["use_case_id"]]["worked_governance"]]
+    shortlisted_controls = sum(len(_controls_for(row["use_case_id"], controls)) for row in shortlisted_agents)
+    outcome = (
+        f'{len(cases)} use cases assessed · the risk gate removed {len(medium_ineligible)}, including the top-scoring idea at High appetite '
+        f'({_esc(high_top["use_case_id"])}) · {len(shortlisted_agents)} shortlisted agents carry {shortlisted_controls} traced controls.'
+    )
     hero_chips = "".join(
         f'<span class="hero-chip">{_esc(value)}</span>'
         for value in (scenario["market"], scenario["currency"], *scenario["lines"])
@@ -276,7 +328,7 @@ def _case_study_html_content() -> str:
         '<header class="hero case-study-hero"><div class="hero-inner">'
         '<span class="hero-pill">Case study · simulated scenario · synthetic data · illustrative, not legal advice</span>'
         '<h1>Life and protection AI: which use cases go forward, under what controls</h1>'
-        f'<p class="hero-question">{_esc(question)}</p><div class="hero-chips">{hero_chips}</div>'
+        f'<p class="hero-question case-study-outcome">{outcome}</p><div class="hero-chips">{hero_chips}</div>'
         '<div class="hero-actions"><a class="hero-button primary" href="../">Open the live dashboard</a>'
         '<a class="hero-button outline" href="https://github.com/kakali-bandyopadhyay/life-ai-value-chain">Code</a></div>'
         '</div></header>'
@@ -296,9 +348,9 @@ def _case_study_html_content() -> str:
     count_words = {0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
     approach = (
         '<section class="case-study-section" id="approach"><h2>The approach</h2>'
-        f'{_approach_strip(len(cases), stage_summary, count_words.get(worked_count, str(worked_count)))}'
-        '<figure><img class="diagram" src="../diagrams/value_chain.svg" alt="Value chain, risk gate, shortlist and worked governance"></figure>'
-        '</section>'
+        + f'{_approach_strip(len(cases), stage_summary, count_words.get(worked_count, str(worked_count)))}'
+        + _chart_figure(1, FLOW_FIGURE_TITLE, _value_chain_svg(), FLOW_FIGURE_CAPTION, "flow-figure")
+        + '</section>'
     )
 
     high_ids = sorted(case["use_case_id"] for case in medium_ineligible if case["risk_tier"] == "high")
@@ -462,7 +514,14 @@ def _priority_matrix(cases: list[dict[str, Any]], ranked: list[dict[str, Any]], 
               '<span class="legend-item"><span class="legend-mark eligible"></span>Eligible</span>'
               '<span class="legend-item"><span class="legend-mark gated"></span>Not eligible – risk gate</span>'
               '<span class="legend-item">Bubble size = data readiness</span></div>')
-    return '<section id="matrix"><h2>Priority matrix</h2><figure class="chart-figure"><div class="matrix-wrap">' + "".join(pieces) + '</div>' + legend + f'<figcaption><span id="matrix-appetite">Appetite: {_esc(RISK_LABELS[appetite])}</span> · Bubble size = data readiness. Dashed = blocked by the internal AI risk gate at appetite.</figcaption></figure></section>'
+    chart = '<div class="matrix-wrap">' + "".join(pieces) + "</div>" + legend
+    caption = (
+        "Bubble size shows data readiness; dashed bubbles are blocked by the risk gate at "
+        f'<span id="matrix-caption-appetite">{_esc(RISK_LABELS[appetite])}</span> appetite, whatever their score. '
+        "Source: data/use_cases.json · synthetic data."
+    )
+    figure = _chart_figure(2, "Priority matrix: value against feasibility", chart, caption, "matrix-figure")
+    return '<section id="matrix"><h2>Priority matrix</h2>' + figure + "</section>"
 
 
 def _heatmap(cases: list[dict[str, Any]], appetite: str) -> str:
@@ -492,7 +551,13 @@ def _heatmap(cases: list[dict[str, Any]], appetite: str) -> str:
     pieces.append(f'<line class="appetite-line" x1="{appetite_x}" y1="20" x2="{appetite_x}" y2="{y0 + len(STAGES) * ch}"/>')
     pieces.append(f'<text class="appetite-label" x="{appetite_x + 5}" y="14">Appetite: {_esc(RISK_LABELS[appetite])}</text>')
     pieces.append("</svg>")
-    return '<section id="heatmap"><h2>Risk heatmap</h2><figure class="heatmap-wrap">' + "".join(pieces) + f'<figcaption>Counts by value-chain stage and internal AI risk tier · total {total}</figcaption></figure></section>'
+    caption = (
+        "Cells right of the dashed line are above the "
+        f'<span id="heatmap-caption-appetite">{_esc(RISK_LABELS[appetite])}</span> appetite and cannot be ranked. '
+        "Source: data/use_cases.json · synthetic data."
+    )
+    figure = _chart_figure(3, "Use cases by value-chain stage and internal AI risk tier", "".join(pieces), caption, "heatmap-figure")
+    return '<section id="heatmap"><h2>Risk heatmap</h2>' + figure + "</section>"
 
 
 def _table_rows(ranked: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]) -> list[list[str]]:
@@ -593,8 +658,7 @@ def _html_content() -> str:
     body = ['<main id="top">']
     body.append(_kpis_html(cases, ranked, ineligible, config["default_max_risk"], config["shortlist_size"]))
     body.append(_approach_strip(len(cases), stage_summary, worked_count_text))
-    if (REPO_ROOT / "docs" / "diagrams" / "value_chain.svg").is_file():
-        body.append('<section id="value-chain"><h2>Value chain</h2><figure><img class="diagram" src="diagrams/value_chain.svg" alt="Value chain to governance flow"></figure></section>')
+    body.append(f'<section id="value-chain"><h2>Value chain</h2>{_chart_figure(1, FLOW_FIGURE_TITLE, _value_chain_svg(), FLOW_FIGURE_CAPTION, "flow-figure")}</section>')
     body.extend([
         _priority_matrix(cases, ranked, ineligible, config["default_max_risk"]),
         _heatmap(cases, config["default_max_risk"]),
@@ -692,8 +756,6 @@ def build(output_dir: str | Path | None = None) -> tuple[Path, Path]:
         raise ValueError("Cannot build with invalid data:\n" + "\n".join(errors))
     target_dir = Path(output_dir) if output_dir is not None else REPO_ROOT / "docs"
     target_dir.mkdir(parents=True, exist_ok=True)
-    (target_dir / "diagrams").mkdir(parents=True, exist_ok=True)
-    (target_dir / "diagrams" / "value_chain.mmd").write_bytes(_diagram_source().encode("utf-8"))
     html_path, markdown_path = target_dir / "index.html", target_dir / "ASSESSMENT.md"
     case_study_path = target_dir / "case-study" / "index.html"
     case_study_path.parent.mkdir(parents=True, exist_ok=True)

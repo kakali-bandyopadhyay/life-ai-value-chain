@@ -172,8 +172,8 @@
       var rankedItem = rankById[item.use_case_id];
       circle.setAttribute("class", ineligibleIds[item.use_case_id] ? "gated-point" : rankedItem.shortlisted ? "shortlisted-point" : "eligible-point");
     });
-    var caption = document.getElementById("matrix-appetite");
-    if (caption) caption.textContent = "Appetite: " + appetiteLabel(appetite);
+    var matrixCaption = document.getElementById("matrix-caption-appetite");
+    if (matrixCaption) matrixCaption.textContent = appetiteLabel(appetite);
     var tierOrder = config.risk_order || ["low", "medium", "high", "unacceptable"];
     var boundary = 140 + (tierOrder.indexOf(appetite) + 1) * 120;
     var heatLine = document.querySelector(".heatmap-chart .appetite-line");
@@ -186,6 +186,8 @@
       heatLabel.setAttribute("x", String(boundary + 5));
       heatLabel.textContent = "Appetite: " + appetiteLabel(appetite);
     }
+    var heatmapCaption = document.getElementById("heatmap-caption-appetite");
+    if (heatmapCaption) heatmapCaption.textContent = appetiteLabel(appetite);
   }
 
   function updateKpis(result, appetite) {

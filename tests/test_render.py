@@ -9,6 +9,7 @@ import html
 from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from ai_value_chain.data import DATA_DIR, REPO_ROOT, load_controls, load_use_cases
 from ai_value_chain.render import LABEL_LINE, PAGE_TEMPLATE, build
@@ -30,6 +31,7 @@ class PageParser(HTMLParser):
         self.element_ids: list[str] = []
         self.script_count = 0
         self.row_classes: list[str] = []
+        self.how_to_read_parent: tuple[str, dict[str, str]] | None = None
 
     def handle_starttag(self, tag, attrs):
         attr = dict(attrs)
@@ -44,6 +46,8 @@ class PageParser(HTMLParser):
                 self.footer_hrefs.append(attr["href"])
         if attr.get("id"):
             self.element_ids.append(attr["id"])
+        if tag == "section" and "how-to-read" in attr.get("class", "").split():
+            self.how_to_read_parent = self.stack[-1] if self.stack else None
         if tag == "circle" and attr.get("data-id"):
             self.circles.append(attr)
         if tag == "table":
@@ -84,6 +88,16 @@ def _build(tmp_path: Path):
     return html_path, markdown_path, page, report, parser
 
 
+def _flow_svg(page: str) -> str:
+    match = re.search(r'<svg class="diagram value-chain-flow".*?</svg>', page, flags=re.S)
+    assert match
+    return match.group(0)
+
+
+def _chart_figures(page: str):
+    return re.findall(r'<figure class="chart-figure ([^"]+)">(.*?)</figure>', page, flags=re.S)
+
+
 def test_scenario_drives_header_and_report_and_general_insurance_terms_are_absent(tmp_path):
     _, _, page, report, _ = _build(tmp_path)
     scenario = json.loads((DATA_DIR / "scenario.json").read_text(encoding="utf-8-sig"))
@@ -97,18 +111,16 @@ def test_scenario_drives_header_and_report_and_general_insurance_terms_are_absen
 
 
 def test_dashboard_sections_and_kpis_are_in_required_order(tmp_path):
-    _, _, page, report, _ = _build(tmp_path)
+    _, _, page, report, parser = _build(tmp_path)
     ids = ("kpis", "context", "matrix", "heatmap", "scoring", "ranking", "not-eligible", "governance")
     positions = [page.index(f'id="{section}"') for section in ids]
     assert positions == sorted(positions)
     assert page.index('<header class="hero">') < positions[0]
     assert page.index("</header>") < page.index("<main id=\"top\">") < positions[0]
     assert page.index("<footer>") > positions[-1]
-    diagram = REPO_ROOT / "docs" / "diagrams" / "value_chain.svg"
-    if diagram.is_file():
-        assert positions[1] < page.index('id="value-chain"') < positions[2]
-    else:
-        assert 'id="value-chain"' not in page
+    assert parser.how_to_read_parent == ("main", {"id": "top"})
+    assert positions[1] < page.index('id="value-chain"') < positions[2]
+    assert '<svg class="diagram value-chain-flow"' in page
     for label, number in (("Use cases assessed", 14), ("Eligible", 11), ("Shortlisted", 5), ("Not eligible", 3)):
         assert f'<div class="kpi-main"><strong>{number}</strong><span class="kpi-label">{label}</span></div>' in page
     for caption in ("across 5 value-chain stages", "at Medium appetite · internal AI risk tier ≤ Medium", "top 5 by weighted score", "VC-02, VC-14 high · VC-03 unacceptable"):
@@ -132,6 +144,83 @@ def test_dashboard_sections_and_kpis_are_in_required_order(tmp_path):
     assert "Each must pass the insurer's internal AI risk tier – its own appetite measure, not a regulatory classification." in page
     assert "Eligible use cases are ranked by weighted score; two shortlisted ones carry worked controls and agent accountability." in page
     assert "Lines in scope" not in page and "currency:" not in page
+
+
+def test_how_to_read_strip_stays_within_main_at_desktop_viewports(tmp_path):
+    _, _, page, _, parser = _build(tmp_path)
+    main_rule = re.search(r"main\{([^}]+)\}", page).group(1)
+    strip_rule = re.search(r"\.how-to-read\{([^}]+)\}", page).group(1)
+    main_css = dict(declaration.split(":", 1) for declaration in main_rule.split(";"))
+    strip_css = dict(declaration.split(":", 1) for declaration in strip_rule.split(";"))
+
+    assert parser.how_to_read_parent == ("main", {"id": "top"})
+    assert strip_css["box-sizing"] == "border-box"
+    assert strip_css["width"] == "100%"
+    assert "min-width" not in strip_css or strip_css["min-width"] == "0"
+    assert int(strip_css["max-width"].removesuffix("px")) <= int(main_css["max-width"].removesuffix("px"))
+    assert "*{box-sizing:border-box}" in page
+
+    main_max_width = int(main_css["max-width"].removesuffix("px"))
+    main_padding = [int(value.removesuffix("px")) for value in main_css["padding"].split()]
+    horizontal_padding = main_padding[1]
+    for viewport_width in (1440, 1024):
+        main_width = min(viewport_width, main_max_width)
+        main_left = (viewport_width - main_width) / 2
+        content_left = main_left + horizontal_padding
+        content_width = main_width - 2 * horizontal_padding
+        strip_left = content_left
+        strip_right = strip_left + content_width
+        assert strip_left > 0
+        assert strip_right < viewport_width
+        assert content_width <= main_width
+
+
+def test_dashboard_and_case_study_chart_figures_are_numbered_and_appetite_aware(tmp_path):
+    dashboard_path, _, dashboard, _, _ = _build(tmp_path)
+    case_study = (tmp_path / "case-study" / "index.html").read_text(encoding="utf-8")
+    config = json.loads((DATA_DIR / "scoring_config.json").read_text(encoding="utf-8"))
+    appetite = config["default_max_risk"].title()
+
+    expected_titles = [
+        "Figure 1 · From candidate use cases to governed agents",
+        "Figure 2 · Priority matrix: value against feasibility",
+        "Figure 3 · Use cases by value-chain stage and internal AI risk tier",
+    ]
+    dashboard_figures = _chart_figures(dashboard)
+    assert len(dashboard_figures) == 3
+    dashboard_titles = [re.search(r'<div class="fig-title">(.*?)</div>', figure).group(1) for _, figure in dashboard_figures]
+    assert dashboard_titles == expected_titles
+    case_figures = _chart_figures(case_study)
+    assert len(case_figures) == 1
+    assert re.search(r'<div class="fig-title">(.*?)</div>', case_figures[0][1]).group(1) == expected_titles[0]
+
+    flow_caption = (
+        "Every use case passes the internal AI risk gate before ranking; only shortlisted use cases get worked governance. "
+        "Source: data/use_cases.json, data/scoring_config.json, data/controls_trace.json, data/agent_accountability.json · synthetic data."
+    )
+    matrix_caption = (
+        f"Bubble size shows data readiness; dashed bubbles are blocked by the risk gate at {appetite} appetite, whatever their score. "
+        "Source: data/use_cases.json · synthetic data."
+    )
+    heatmap_caption = (
+        f"Cells right of the dashed line are above the {appetite} appetite and cannot be ranked. "
+        "Source: data/use_cases.json · synthetic data."
+    )
+    expected_captions = [flow_caption, matrix_caption, heatmap_caption]
+    for (_, figure), expected in zip(dashboard_figures, expected_captions):
+        caption_markup = re.search(r'<figcaption>(.*?)</figcaption>', figure, flags=re.S).group(1)
+        caption = html.unescape(re.sub(r"<[^>]+>", "", caption_markup))
+        assert caption == expected
+        assert "Source:" in caption and "synthetic data" in caption
+        assert figure.index('<div class="fig-title">') < figure.index("<svg") < figure.index("<figcaption>")
+    case_caption_markup = re.search(r'<figcaption>(.*?)</figcaption>', case_figures[0][1], flags=re.S).group(1)
+    assert html.unescape(re.sub(r"<[^>]+>", "", case_caption_markup)) == flow_caption
+
+    app_js = (REPO_ROOT / "docs" / "app.js").read_text(encoding="utf-8")
+    assert 'document.getElementById("matrix-caption-appetite")' in app_js
+    assert 'matrixCaption.textContent = appetiteLabel(appetite);' in app_js
+    assert 'document.getElementById("heatmap-caption-appetite")' in app_js
+    assert 'heatmapCaption.textContent = appetiteLabel(appetite);' in app_js
 
 
 def test_hero_contents_footer_sources_and_kpi_captions(tmp_path):
@@ -240,7 +329,7 @@ def test_priority_matrix_has_14_unique_points_with_required_classes(tmp_path):
     assert all(math.dist(a, b) >= 12 for index, a in enumerate(label_points) for b in label_points[index + 1:])
     assert "</svg></div><div class=\"matrix-legend\"" in page
     assert "Not eligible – risk gate" in page
-    assert "Bubble size = data readiness. Dashed = blocked by the internal AI risk gate at appetite." in page
+    assert "Bubble size shows data readiness; dashed bubbles are blocked by the risk gate at" in page
     assert ".chart .matrix-label{font-size:11px}" in page
     assert ".matrix-legend{display:flex" in page and "font-size:12px" in page
 
@@ -391,34 +480,55 @@ def test_worked_cards_have_two_use_cases_four_stat_chips_and_governance_tables(t
 
 
 def test_build_outputs_are_deterministic_utf8_and_markdown_has_stage_tier_table(tmp_path):
-    html_path, markdown_path, _, report, _ = _build(tmp_path)
-    diagram_path = tmp_path / "diagrams" / "value_chain.mmd"
-    first = (html_path.read_bytes(), markdown_path.read_bytes(), diagram_path.read_bytes())
+    html_path, markdown_path, page, report, _ = _build(tmp_path)
+    case_study_path = tmp_path / "case-study" / "index.html"
+    case_study = case_study_path.read_bytes()
+    first = (html_path.read_bytes(), markdown_path.read_bytes(), case_study)
     assert all(not content.startswith(b"\xef\xbb\xbf") and b"\r\n" not in content for content in first)
     build(tmp_path)
-    assert first == (html_path.read_bytes(), markdown_path.read_bytes(), diagram_path.read_bytes())
+    assert first == (html_path.read_bytes(), markdown_path.read_bytes(), case_study_path.read_bytes())
     assert "## Stage × internal risk tier counts" in report
     assert "| Stage | Low | Medium | High | Unacceptable |" in report
     assert not re.search(r"</?[A-Za-z][^>]*>", report)
-    diagram = (tmp_path / "diagrams" / "value_chain.mmd").read_text(encoding="utf-8")
-    assert "&lt;" not in diagram and "&gt;" not in diagram and "&amp;" not in diagram
-    assert "S1[\"Distribution<br/>2 use cases\"]" in diagram
-    assert "S2[\"Underwriting<br/>4 use cases\"]" in diagram
-    assert "S3[\"Policy admin<br/>4 use cases\"]" in diagram
-    assert "S4[\"Servicing<br/>2 use cases\"]" in diagram
-    assert "S5[\"Claims<br/>2 use cases\"]" in diagram
-    assert 'GATE{{"Internal AI risk gate<br/>appetite: Medium"}}' in diagram
-    assert 'SL["Ranked shortlist<br/>top 5 of 11 eligible"]' in diagram
-    assert 'NE["Not eligible (3)<br/>VC-02, VC-14 · high<br/>VC-03 · unacceptable"]' in diagram
-    assert 'GOV["Worked governance<br/>VC-01 Underwriting Evidence Summariser<br/>VC-05 Policy-Admin Data Exception Agent"]' in diagram
-    assert 'CT["Controls trace<br/>24 controls"]' in diagram
-    assert 'AA["Agent accountability<br/>10 actions"]' in diagram
-    assert "classDef gate fill:#fff3d6,stroke:#b26a00;" in diagram
-    assert "classDef ne fill:#fdeaea,stroke:#b71c1c,stroke-dasharray:4 3;" in diagram
-    assert "classDef sl fill:#e0f2f1,stroke:#00695c;" in diagram
-    assert "classDef gov fill:#ffffff,stroke:#00695c" in diagram
-    assert '<img class="diagram"' in (tmp_path / "index.html").read_text(encoding="utf-8")
-    assert ".diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}" in (tmp_path / "index.html").read_text(encoding="utf-8")
+    svg = _flow_svg(page)
+    case_study_svg = _flow_svg(case_study.decode("utf-8"))
+    assert svg == case_study_svg
+    parsed = ET.fromstring(svg)
+    assert parsed.attrib["viewBox"] == "0 0 720 330"
+    assert parsed.attrib["role"] == "img"
+    assert parsed.find("title") is not None and parsed.find("desc") is not None
+    stages = re.findall(r'<g class="stage">(.*?)</g>', svg, flags=re.S)
+    assert len(stages) == 5
+    counts = [int(re.search(r">(\d+) use cases</text>", stage).group(1)) for stage in stages]
+    assert sum(counts) == len(load_use_cases()) == 14
+    for label, count in zip(("Distribution", "Underwriting", "Policy admin", "Servicing", "Claims"), (2, 4, 4, 2, 2)):
+        assert f'<tspan class="label">{label}</tspan>' in svg
+        assert f">{count} use cases</text>" in svg
+    for expected in (
+        "Internal AI risk gate", "appetite: Medium", "Ranked shortlist", "top 5 of 11 eligible",
+        "Not eligible (3)", "VC-02, VC-14 high · VC-03 unacceptable", "24 controls", "10 actions",
+    ):
+        assert expected in svg
+    assert svg.count("<marker ") == 1
+    assert ".diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}" in page
+    assert "<img" not in svg
+    assert not re.search(r'<img\b[^>]*src=["\'][^"\']*diagrams/', page + case_study.decode("utf-8"), flags=re.I)
+    assert not (REPO_ROOT / "docs" / "diagrams" / "value_chain.mmd").exists()
+    assert not (REPO_ROOT / "docs" / "diagrams" / "value_chain.svg").exists()
+    assert not (REPO_ROOT / "scripts" / "export_diagram.ps1").exists()
+    assert not (REPO_ROOT / ".github" / "puppeteer-config.json").exists()
+
+
+def test_flow_svg_css_has_light_dark_classes_and_expected_dimensions(tmp_path):
+    _, _, page, _, _ = _build(tmp_path)
+    assert '.diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}' in page
+    assert '.value-chain-flow text{font:13px system-ui' in page
+    assert '.value-chain-flow .gate polygon{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke)' in page
+    assert '.value-chain-flow .ne rect{fill:var(--flow-ne-fill);stroke:var(--flow-ne-stroke)' in page
+    assert '--flow-gate-fill:#fff3d6' in page and '--flow-gate-fill:#4a3d17' in page
+    assert '.chart-figure{box-sizing:border-box;width:100%;max-width:720px;margin:24px auto;border-top:1px solid var(--border);padding-top:12px}' in page
+    assert '.fig-title{font-size:14px;font-weight:700' in page
+    assert '.chart-figure figcaption{color:var(--muted);font-size:12px;max-width:var(--figure-chart-width,720px)' in page
 
 
 def test_page_ids_are_unique_and_worked_cards_are_the_only_vc_ids(tmp_path):
