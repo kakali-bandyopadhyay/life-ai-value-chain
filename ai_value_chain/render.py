@@ -29,6 +29,21 @@ PAGE_TEMPLATE = """<!doctype html>
 </html>
 """
 
+CASE_STUDY_PAGE_TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/assets/favicon-32x32.png" sizes="32x32"><link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<title>{title}</title>
+{styles}
+</head>
+<body>
+{content}
+</body>
+</html>
+"""
+
 GITHUB_BLOB = "https://github.com/kakali-bandyopadhyay/life-ai-value-chain/blob/main/"
 STAGES = ("distribution", "underwriting", "policy_admin", "servicing", "claims")
 STAGE_LABELS = {"distribution": "Distribution", "underwriting": "Underwriting", "policy_admin": "Policy admin", "servicing": "Servicing", "claims": "Claims"}
@@ -238,6 +253,161 @@ def _css() -> str:
 </style>"""
 
 
+def _case_study_css() -> str:
+    extra = """body{font-size:15px;line-height:1.6}.case-study-hero{padding:24px 0 32px}.case-study-hero .hero-inner{max-width:820px}.article-main{box-sizing:border-box;width:100%;max-width:820px;margin:0 auto;padding:24px 16px 36px}.article-main h2{font-size:20px}.article-main h3{font-size:16px}.case-study-section{margin:0 0 28px}.case-study-section .how-to-read{margin:0 0 18px}.case-study-card{border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.case-study-card h3{margin:0}.permission-list,.finding-list{padding-left:22px}.permission-list li,.finding-list li{margin:5px 0}.two-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.two-columns>div{min-width:0;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}.article-main .diagram{max-width:720px}.case-study-footer{margin-top:36px}@media(max-width:759px){.two-columns{grid-template-columns:1fr}}"""
+    return _css().replace("</style>", extra + "</style>")
+
+
+def _case_study_html_content() -> str:
+    config, scenario, cases, _, medium_ineligible = _ranked_data()
+    controls, actions = load_controls(), load_actions()
+    high_ranked, _ = rank(cases, config["default_weights"], "high")
+    medium_ranked, _ = rank(cases, config["default_weights"], "medium")
+    case_by_id = {case["use_case_id"]: case for case in cases}
+    high_by_id = {case["use_case_id"]: case for case in high_ranked}
+    medium_top = medium_ranked[0]
+    high_top = high_ranked[0]
+    question = f"Which AI use cases should a {scenario['insurer'].removeprefix('Simulated ')} take forward, and under what controls?"
+    hero_chips = "".join(
+        f'<span class="hero-chip">{_esc(value)}</span>'
+        for value in (scenario["market"], scenario["currency"], *scenario["lines"])
+    )
+    hero = (
+        '<header class="hero case-study-hero"><div class="hero-inner">'
+        '<span class="hero-pill">Case study · simulated scenario · synthetic data · illustrative, not legal advice</span>'
+        '<h1>Life and protection AI: which use cases go forward, under what controls</h1>'
+        f'<p class="hero-question">{_esc(question)}</p><div class="hero-chips">{hero_chips}</div>'
+        '<div class="hero-actions"><a class="hero-button primary" href="../">Open the live dashboard</a>'
+        '<a class="hero-button outline" href="https://github.com/kakali-bandyopadhyay/life-ai-value-chain">Code</a></div>'
+        '</div></header>'
+    )
+
+    problem = (
+        '<section class="case-study-section" id="problem"><h2>The problem</h2>'
+        '<p>A life and protection insurer has more candidate AI use cases than it can deliver. '
+        'The highest-value ideas are often the ones that act on customers, through pricing, acceptance or claims, '
+        'where an error harms people. Governance is often added after a build instead of deciding whether it should be built.</p></section>'
+    )
+
+    present_stages = [stage for stage in STAGES if any(case["value_chain_stage"] == stage for case in cases)]
+    stage_names = [STAGE_LABELS[stage].lower() for stage in present_stages]
+    stage_summary = ", ".join(stage_names[:-1]) + (f" and {stage_names[-1]}" if len(stage_names) > 1 else (stage_names[0] if stage_names else "no value-chain stages"))
+    worked_count = sum(case["worked_governance"] for case in cases)
+    count_words = {0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+    approach = (
+        '<section class="case-study-section" id="approach"><h2>The approach</h2>'
+        f'{_approach_strip(len(cases), stage_summary, count_words.get(worked_count, str(worked_count)))}'
+        '<figure><img class="diagram" src="../diagrams/value_chain.svg" alt="Value chain, risk gate, shortlist and worked governance"></figure>'
+        '</section>'
+    )
+
+    high_ids = sorted(case["use_case_id"] for case in medium_ineligible if case["risk_tier"] == "high")
+    unacceptable_ids = sorted(case["use_case_id"] for case in medium_ineligible if case["risk_tier"] == "unacceptable")
+    tier_groups = []
+    if high_ids:
+        tier_groups.append(f'{_esc(", ".join(high_ids))} high')
+    if unacceptable_ids:
+        tier_groups.append(f'{_esc(", ".join(unacceptable_ids))} unacceptable')
+    tier_summary = "; ".join(tier_groups)
+    gate_paragraph = (
+        f'<p>At Medium appetite, {len(cases) - len(medium_ineligible)} of {len(cases)} use cases are eligible. '
+        f'The gate removes {len(medium_ineligible)}: {tier_summary}. At High appetite the top-ranked use case would be '
+        f'{_esc(high_top["use_case_id"])} ({high_top["score"]:.1f}); at Medium it is not eligible, so no weighting can bring it back.</p>'
+    )
+    gate_rows = []
+    gate_ids = [case["use_case_id"] for case in sorted(medium_ineligible, key=lambda row: row["use_case_id"])] + [medium_top["use_case_id"]]
+    for use_case_id in gate_ids:
+        case = case_by_id[use_case_id]
+        high_case = high_by_id.get(use_case_id)
+        score_value = f'{high_case["score"]:.1f}' if high_case else "Not eligible at any appetite"
+        status = "Ranked #1 at Medium" if use_case_id == medium_top["use_case_id"] else "Not eligible"
+        gate_rows.append([
+            f'<strong>{_esc(use_case_id)}</strong><br>{_esc(case["name"])}',
+            _risk_html(case["risk_tier"]),
+            _esc(score_value),
+            _esc(status),
+        ])
+    gate_table = _html_table(
+        ["Use case", "Internal AI risk tier", "Score at High appetite", "Status at Medium"],
+        gate_rows,
+        widths=(14, 26, 25, 35),
+        classes="gate-table",
+    )
+    gate = f'<section class="case-study-section" id="gate"><h2>What the gate changed</h2>{gate_paragraph}{gate_table}</section>'
+
+    agent_cards = []
+    for case in sorted((row for row in cases if row["worked_governance"]), key=lambda row: row["use_case_id"]):
+        use_case_id = case["use_case_id"]
+        case_controls = _controls_for(use_case_id, controls)
+        case_actions = _actions_for(use_case_id, actions)
+        permitted = [row for row in case_actions if row["agent_allowed"] == "yes"]
+        prohibited = [row for row in case_actions if row["agent_allowed"] != "yes"]
+        permission_list = lambda rows: "".join(
+            f'<li><strong>{_esc(row["action"].title())}:</strong> {_esc(row["tool_permissions"])} '
+            f'(accountable role: {_esc(row["accountable_human_role"])})</li>'
+            for row in rows
+        )
+        findings = []
+        for control in case_controls:
+            if control["test_result"] == "fail":
+                findings.append(
+                    f'<li><strong>{_esc(control["control_id"])}</strong> — {_esc(control["requirement"])} '
+                    f'<span>Remediation: {_esc(control["remediation_note"])}</span></li>'
+                )
+            if control.get("exception_id"):
+                findings.append(
+                    f'<li><strong>{_esc(control["exception_id"])}</strong> — {_esc(control["exception_reason"])}</li>'
+                )
+        open_findings = "".join(findings) or "<li>No open findings.</li>"
+        agent_cards.append(
+            f'<article class="case-study-card" id="worked-{_esc(use_case_id)}">'
+            f'<div class="card-heading"><span class="chip">{_esc(use_case_id)}</span><h3>{_esc(case["name"])}</h3>'
+            f'{_risk_html(case["risk_tier"])}</div>'
+            f'<p><strong>What it does:</strong> {_esc(case["description"])}</p>'
+            f'<h4>The agent may</h4><ul class="permission-list">{permission_list(permitted)}</ul>'
+            f'<h4>The agent may not</h4><ul class="permission-list">{permission_list(prohibited)}</ul>'
+            f'{_stats_html(case_controls)}<h4>Open findings</h4><ul class="finding-list">{open_findings}</ul>'
+            f'<p><a href="../#{_esc(use_case_id)}">Full controls trace and accountability</a></p></article>'
+        )
+    governance = '<section class="case-study-section" id="worked-agents"><h2>The two worked agents</h2>' + "".join(agent_cards) + "</section>"
+
+    reality = (
+        '<section class="case-study-section" id="real-and-simulated"><h2>What is real and what is simulated</h2>'
+        '<div class="two-columns"><div><h3>Real</h3><ul>'
+        '<li>The gate-then-rank logic and its tests.</li>'
+        '<li>The browser ranking checked against the Python reference by a parity test.</li>'
+        '<li>A reproducible build: the same inputs produce identical files.</li>'
+        '</ul></div><div><h3>Simulated</h3><ul>'
+        '<li>The insurer, use cases, scores, controls, test results and evidence.</li>'
+        '<li>Evidence items are labelled “Design record” or “Simulated evidence”.</li>'
+        '</ul></div></div></section>'
+    )
+    limits = (
+        '<section class="case-study-section" id="limits"><h2>Limits and next steps</h2><ul>'
+        '<li>The internal AI risk tier is an appetite measure, not a regulatory classification.</li>'
+        '<li>No law or regulator is interpreted.</li>'
+        '<li>No live model outputs were evaluated.</li>'
+        '<li>Next: map controls to applicable requirements with Legal/Compliance, evaluate real model outputs for the two shortlisted agents, and extend to further lines.</li>'
+        '</ul></section>'
+    )
+    source_links = " · ".join(f'<a href="{_repo_url(path)}">{_esc(label)}</a>' for label, path in _links())
+    footer = f'<footer class="case-study-footer"><p>{_esc(BOUNDARY)}</p><p>MIT licence</p><p>Source data: {source_links}</p></footer>'
+    return hero + f'<main class="article-main">{problem}{approach}{gate}{governance}{reality}{limits}{footer}</main>'
+
+
+def _approach_strip(case_count: int, stage_summary: str, worked_count_text: str) -> str:
+    return (
+        '<section id="context" class="how-to-read" aria-label="How to read this page">'
+        '<article class="read-card"><div class="read-card-heading"><span class="step-badge">1</span><strong>Assess</strong></div>'
+        f'<p>{case_count} AI use cases across {_esc(stage_summary)}.</p></article>'
+        '<article class="read-card"><div class="read-card-heading"><span class="step-badge">2</span><strong>Gate</strong></div>'
+        "<p>Each must pass the insurer's internal AI risk tier – its own appetite measure, not a regulatory classification.</p></article>"
+        '<article class="read-card"><div class="read-card-heading"><span class="step-badge">3</span><strong>Prioritise and govern</strong></div>'
+        f'<p>Eligible use cases are ranked by weighted score; {worked_count_text} shortlisted ones carry worked controls and agent accountability.</p></article>'
+        '</section>'
+    )
+
+
 def _kpis_html(cases: list[dict[str, Any]], ranked: list[dict[str, Any]], ineligible: list[dict[str, Any]], appetite: str, shortlist_size: int) -> str:
     high_ids = ", ".join(sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "high"))
     unacceptable_ids = ", ".join(sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "unacceptable"))
@@ -410,7 +580,8 @@ def _html_content() -> str:
         f'<p class="hero-question">{_esc(question)}</p>'
         f'<div class="hero-chips">{hero_chips}</div>'
         '<div class="hero-actions"><a class="hero-button primary" href="#ranking">View ranking</a>'
-        '<a class="hero-button outline" href="#governance">Worked governance</a></div>'
+        '<a class="hero-button outline" href="#governance">Worked governance</a>'
+        '<a class="hero-button outline" href="case-study/">Read the case study</a></div>'
         '</div></header>'
     )
     present_stages = [stage for stage in STAGES if any(case["value_chain_stage"] == stage for case in cases)]
@@ -421,16 +592,7 @@ def _html_content() -> str:
     worked_count_text = count_words.get(worked_shortlisted, str(worked_shortlisted))
     body = ['<main id="top">']
     body.append(_kpis_html(cases, ranked, ineligible, config["default_max_risk"], config["shortlist_size"]))
-    body.extend([
-        '<section id="context" class="how-to-read" aria-label="How to read this page">'
-        '<article class="read-card"><div class="read-card-heading"><span class="step-badge">1</span><strong>Assess</strong></div>'
-        f'<p>{len(cases)} AI use cases across {_esc(stage_summary)}.</p></article>'
-        '<article class="read-card"><div class="read-card-heading"><span class="step-badge">2</span><strong>Gate</strong></div>'
-        "<p>Each must pass the insurer's internal AI risk tier – its own appetite measure, not a regulatory classification.</p></article>"
-        '<article class="read-card"><div class="read-card-heading"><span class="step-badge">3</span><strong>Prioritise and govern</strong></div>'
-        f'<p>Eligible use cases are ranked by weighted score; {worked_count_text} shortlisted ones carry worked controls and agent accountability.</p></article>'
-        '</section>'
-    ])
+    body.append(_approach_strip(len(cases), stage_summary, worked_count_text))
     if (REPO_ROOT / "docs" / "diagrams" / "value_chain.svg").is_file():
         body.append('<section id="value-chain"><h2>Value chain</h2><figure><img class="diagram" src="diagrams/value_chain.svg" alt="Value chain to governance flow"></figure></section>')
     body.extend([
@@ -533,6 +695,14 @@ def build(output_dir: str | Path | None = None) -> tuple[Path, Path]:
     (target_dir / "diagrams").mkdir(parents=True, exist_ok=True)
     (target_dir / "diagrams" / "value_chain.mmd").write_bytes(_diagram_source().encode("utf-8"))
     html_path, markdown_path = target_dir / "index.html", target_dir / "ASSESSMENT.md"
+    case_study_path = target_dir / "case-study" / "index.html"
+    case_study_path.parent.mkdir(parents=True, exist_ok=True)
     html_path.write_bytes(_html_content().replace("\r\n", "\n").encode("utf-8"))
     markdown_path.write_bytes(_markdown_content().replace("\r\n", "\n").encode("utf-8"))
+    case_study_html = CASE_STUDY_PAGE_TEMPLATE.format(
+        title="Life and protection AI: which use cases go forward, under what controls",
+        styles=_case_study_css(),
+        content=_case_study_html_content(),
+    )
+    case_study_path.write_bytes(case_study_html.replace("\r\n", "\n").encode("utf-8"))
     return html_path, markdown_path

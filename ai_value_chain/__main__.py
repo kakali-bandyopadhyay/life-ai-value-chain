@@ -66,7 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     build_report()
-    print("Built docs/index.html and docs/ASSESSMENT.md")
+    print("Built docs/index.html, docs/ASSESSMENT.md, and docs/case-study/index.html")
     return 0
 
 
