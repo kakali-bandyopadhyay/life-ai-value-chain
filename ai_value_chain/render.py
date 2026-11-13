@@ -38,7 +38,7 @@ CASE_STUDY_PAGE_TEMPLATE = """<!doctype html>
 <title>{title}</title>
 {styles}
 </head>
-<body>
+<body class="cs-page">
 {content}
 </body>
 </html>
@@ -92,10 +92,9 @@ def _ranked_data() -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]
 
 def _value_chain_svg() -> str:
     """Render an accessible, data-derived value-chain flow diagram as inline SVG."""
-    config, scenario, cases, ranked, ineligible = _ranked_data()
+    config, _, cases, ranked, ineligible = _ranked_data()
     appetite = RISK_LABELS[config["default_max_risk"]]
     stage_counts = Counter(row["value_chain_stage"] for row in cases)
-    by_id = {row["use_case_id"]: row for row in cases}
     high_ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "high")
     unacceptable_ids = sorted(row["use_case_id"] for row in ineligible if row["risk_tier"] == "unacceptable")
     ineligible_detail = []
@@ -108,50 +107,55 @@ def _value_chain_svg() -> str:
     controls_count = len(load_controls())
     actions_count = len(load_actions())
     stage_order = ("distribution", "underwriting", "policy_admin", "servicing", "claims")
-    stage_x = (4, 144, 284, 424, 564)
+    stage_x = tuple(10 + 140 * index for index in range(len(stage_order)))
     stage_parts = []
     for stage, x in zip(stage_order, stage_x):
+        center = x + 66
         stage_parts.append(
-            f'<g class="stage"><rect x="{x}" y="16" width="132" height="52" rx="7"/>'
-            f'<text x="{x + 66}" y="37" text-anchor="middle"><tspan class="label">{_esc(STAGE_LABELS[stage])}</tspan></text>'
-            f'<text x="{x + 66}" y="54" text-anchor="middle">{stage_counts[stage]} use cases</text></g>'
+            f'<g class="stage" data-stage="{stage}" data-box="stage-{stage}"><rect x="{x}" y="16" width="132" height="52" rx="8"/>'
+            f'<text class="box-title" x="{center}" y="37" text-anchor="middle"><tspan>{_esc(STAGE_LABELS[stage])}</tspan></text>'
+            f'<text class="box-detail" x="{center}" y="54" text-anchor="middle">{stage_counts[stage]} use cases</text></g>'
         )
-    stage_connectors = []
-    for stage_center, gate_x in zip((70, 210, 350, 490, 630), (244, 302, 360, 418, 476)):
-        stage_connectors.append(
-            f'<path class="flow-arrow" d="M{stage_center} 68 L{gate_x} 110" marker-end="url(#flow-arrowhead)"/>'
+    edges = []
+    for stage, x in zip(stage_order, stage_x):
+        stage_center = x + 66
+        gate_x = min(max(stage_center, 230), 490)
+        edges.append(
+            f'<line class="flow-arrow" data-source="stage-{stage}" data-target="gate" x1="{stage_center}" y1="68" x2="{gate_x}" y2="112" marker-end="url(#flow-arrowhead)"/>'
         )
+    edges.extend([
+        '<line class="flow-arrow" data-source="gate" data-target="shortlist" x1="360" y1="164" x2="200" y2="212" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow dashed" data-source="gate" data-target="ne" x1="360" y1="164" x2="520" y2="212" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="shortlist" data-target="worked" x1="200" y1="264" x2="200" y2="300" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="worked" data-target="controls" x1="126" y1="352" x2="126" y2="392" marker-end="url(#flow-arrowhead)"/>',
+        '<line class="flow-arrow" data-source="worked" data-target="accountability" x1="274" y1="352" x2="274" y2="392" marker-end="url(#flow-arrowhead)"/>',
+    ])
     worked_text = " · ".join(worked_ids)
     return (
-        '<svg class="diagram value-chain-flow" viewBox="0 0 720 330" role="img" aria-labelledby="value-chain-title value-chain-desc">'
+        '<svg class="diagram value-chain-flow" viewBox="0 0 720 460" role="img" aria-labelledby="value-chain-title value-chain-desc">'
         '<title id="value-chain-title">Value chain assessment and governance flow</title>'
         f'<desc id="value-chain-desc">{len(cases)} use cases across five stages pass through an internal AI risk gate at {html.escape(appetite)} appetite. '
         f'{len(ineligible)} are not eligible; the ranked shortlist flows to worked governance, {controls_count} controls and {actions_count} accountability actions.</desc>'
-        '<defs><marker id="flow-arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arrowhead" d="M0 0 L10 5 L0 10 z"/></marker></defs>'
-        + "".join(stage_connectors)
-        + '<path class="flow-arrow" d="M360 162 L190 204" marker-end="url(#flow-arrowhead)"/>'
-        + '<path class="flow-arrow dashed" d="M360 162 L530 204" marker-end="url(#flow-arrowhead)"/>'
-        + '<path class="flow-arrow" d="M190 256 L190 270" marker-end="url(#flow-arrowhead)"/>'
-        + '<path class="flow-arrow" d="M340 296 L380 296" marker-end="url(#flow-arrowhead)"/>'
-        + '<path class="flow-arrow" d="M340 280 L362 262 L546 262 L546 296" marker-end="url(#flow-arrowhead)"/>'
+        '<defs><marker id="flow-arrowhead" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="arrowhead" d="M0 0 L10 5 L0 10 z"/></marker></defs>'
+        + "".join(edges)
         + "".join(stage_parts)
-        + '<g class="gate"><polygon points="244,110 476,110 490,136 476,162 244,162 230,136"/>'
-        + '<text x="360" y="132" text-anchor="middle"><tspan class="label">Internal AI risk gate</tspan></text>'
-        + f'<text x="360" y="150" text-anchor="middle">appetite: {html.escape(appetite)}</text></g>'
-        + '<g class="shortlist"><rect x="40" y="204" width="300" height="52" rx="7"/>'
-        + '<text x="190" y="226" text-anchor="middle"><tspan class="label">Ranked shortlist</tspan></text>'
-        + f'<text x="190" y="245" text-anchor="middle">top {config["shortlist_size"]} of {len(ranked)} eligible</text></g>'
-        + f'<g class="ne"><rect x="380" y="204" width="300" height="52" rx="7"/><text x="530" y="226" text-anchor="middle"><tspan class="label">Not eligible ({len(ineligible)})</tspan></text>'
-        + f'<text x="530" y="245" text-anchor="middle">{html.escape(ineligible_label)}</text></g>'
-        + '<g class="gov"><rect x="40" y="270" width="300" height="52" rx="7"/>'
-        + '<text x="190" y="291" text-anchor="middle"><tspan class="label">Worked governance</tspan></text>'
-        + f'<text x="190" y="310" text-anchor="middle">{html.escape(worked_text)}</text></g>'
-        + '<g class="gov"><rect x="380" y="270" width="150" height="52" rx="7"/>'
-        + '<text x="455" y="291" text-anchor="middle"><tspan class="label">Controls trace</tspan></text>'
-        + f'<text x="455" y="310" text-anchor="middle">{controls_count} controls</text></g>'
-        + '<g class="gov"><rect x="546" y="270" width="150" height="52" rx="7"/>'
-        + '<text x="621" y="291" text-anchor="middle"><tspan class="label">Agent accountability</tspan></text>'
-        + f'<text x="621" y="310" text-anchor="middle">{actions_count} actions</text></g>'
+        + '<g class="gate" data-box="gate"><rect x="230" y="112" width="260" height="52" rx="8"/>'
+        + '<text class="box-title" x="360" y="134" text-anchor="middle">Internal AI risk gate</text>'
+        + f'<text class="box-detail" x="360" y="152" text-anchor="middle">appetite: {html.escape(appetite)}</text></g>'
+        + '<g class="shortlist" data-box="shortlist"><rect x="60" y="212" width="280" height="52" rx="8"/>'
+        + '<text class="box-title" x="200" y="234" text-anchor="middle">Ranked shortlist</text>'
+        + f'<text class="box-detail" x="200" y="252" text-anchor="middle">top {config["shortlist_size"]} of {len(ranked)} eligible</text></g>'
+        + f'<g class="ne" data-box="ne"><rect x="380" y="212" width="280" height="52" rx="8"/><text class="box-title" x="520" y="234" text-anchor="middle">Not eligible ({len(ineligible)})</text>'
+        + f'<text class="box-detail" x="520" y="252" text-anchor="middle">{html.escape(ineligible_label)}</text></g>'
+        + '<g class="gov worked" data-box="worked"><rect x="60" y="300" width="280" height="52" rx="8"/>'
+        + '<text class="box-title" x="200" y="322" text-anchor="middle">Worked governance</text>'
+        + f'<text class="box-detail" x="200" y="340" text-anchor="middle">{html.escape(worked_text)}</text></g>'
+        + '<g class="gov controls" data-box="controls"><rect x="60" y="392" width="132" height="52" rx="8"/>'
+        + '<text class="box-title" x="126" y="414" text-anchor="middle">Controls trace</text>'
+        + f'<text class="box-detail" x="126" y="432" text-anchor="middle">{controls_count} controls</text></g>'
+        + '<g class="gov accountability" data-box="accountability"><rect x="208" y="392" width="132" height="52" rx="8"/>'
+        + '<text class="box-title" x="274" y="414" text-anchor="middle">Agent accountability</text>'
+        + f'<text class="box-detail" x="274" y="432" text-anchor="middle">{actions_count} actions</text></g>'
         + "</svg>"
     )
 
@@ -280,16 +284,17 @@ def _css() -> str:
 @media(max-width:759px){.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.how-to-read{grid-template-columns:1fr}.scroll{overflow-x:auto}}
 @media(max-width:419px){.kpis{grid-template-columns:1fr}}
 @media(max-width:759px){.hero h1{font-size:24px}}
-.value-chain-flow text{font:13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:var(--fg)}
-.value-chain-flow .label{font-weight:700}
+.value-chain-flow .box-title{font:700 13px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:var(--fg)}
+.value-chain-flow .box-detail{font:12px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:var(--fg)}
 .value-chain-flow .stage rect{fill:var(--flow-stage-fill);stroke:var(--flow-stage-stroke);stroke-width:1.4}
-.value-chain-flow .gate polygon{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke);stroke-width:1.6}
+.value-chain-flow .gate rect{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke);stroke-width:1.6}
 .value-chain-flow .shortlist rect{fill:var(--flow-shortlist-fill);stroke:var(--flow-shortlist-stroke);stroke-width:1.6}
 .value-chain-flow .ne rect{fill:var(--flow-ne-fill);stroke:var(--flow-ne-stroke);stroke-width:1.6;stroke-dasharray:5 3}
 .value-chain-flow .gov rect{fill:var(--flow-gov-fill);stroke:var(--flow-gov-stroke);stroke-width:1.6}
 .value-chain-flow .flow-arrow{fill:none;stroke:var(--flow-arrow);stroke-width:1.6}
 .value-chain-flow .flow-arrow.dashed{stroke-dasharray:5 4}
 .value-chain-flow .arrowhead{fill:var(--flow-arrow)}
+body:not(.cs-page) #value-chain .flow-figure{margin:16px 0 24px;max-width:720px}
 .chart-figure{box-sizing:border-box;width:100%;max-width:720px;margin:24px auto;border-top:1px solid var(--border);padding-top:12px}
 .chart-figure .fig-title,.chart-figure figcaption{box-sizing:border-box;width:100%;max-width:var(--figure-chart-width,720px);margin-left:auto;margin-right:auto;text-align:left}
 .fig-title{font-size:14px;font-weight:700;margin-bottom:8px}
@@ -301,8 +306,15 @@ def _css() -> str:
 
 
 def _case_study_css() -> str:
-    extra = """body{font-size:15px;line-height:1.6}.case-study-hero{padding:20px 0 28px}.case-study-hero .hero-inner{max-width:820px}.case-study-hero h1{font-size:26px;line-height:1.2}.article-main{box-sizing:border-box;width:100%;max-width:820px;margin:0 auto;padding:28px 16px 36px}.article-main>.case-study-section:first-child h2{margin-top:0}.article-main h2{font-size:20px}.article-main h3{font-size:16px}.case-study-section{margin:0 0 28px}.case-study-section .how-to-read{margin:0 0 18px}.case-study-card{border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.case-study-card h3{margin:0}.permission-list,.finding-list{padding-left:22px}.permission-list li,.finding-list li{margin:5px 0}.two-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.two-columns>div{min-width:0;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}.article-main .diagram{max-width:720px}.case-study-footer{margin-top:36px}@media(max-width:759px){.case-study-hero h1{font-size:22px}.two-columns{grid-template-columns:1fr}}"""
-    return _css().replace("</style>", extra + "</style>")
+    styles = _css()
+    dashboard_selectors = (
+        "main", ".hero-button.primary", ".hero-button.outline", ".hero-question", ".hero-actions",
+        ".hero-chips", ".hero-inner", ".hero-button", ".hero-pill", ".hero h1", ".hero-chip", ".hero",
+    )
+    for selector in dashboard_selectors:
+        styles = styles.replace(f"{selector}{{", f"body:not(.cs-page) {selector}{{")
+    extra = """body.cs-page{font-size:15px;line-height:1.6}body.cs-page .hero{width:100%;padding:20px 0 28px;background:linear-gradient(135deg,var(--hero-start) 0%,var(--hero-end) 100%);color:#fff}body.cs-page .cs-wrap{box-sizing:border-box;width:100%;max-width:880px;margin-left:auto;margin-right:auto;padding-left:24px;padding-right:24px}body.cs-page .hero-pill{display:inline-block;font-size:11px;letter-spacing:.02em;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35)}body.cs-page .hero h1{font-size:26px;line-height:1.2;font-weight:700;margin:12px 0 6px}body.cs-page .hero-question{font-size:16px;line-height:1.4;opacity:.9;max-width:680px;margin:0}body.cs-page .hero-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}body.cs-page .hero-chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.12);white-space:nowrap}body.cs-page .hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}body.cs-page .hero-button{display:inline-flex;align-items:center;justify-content:center;font-size:13px;padding:8px 14px;border-radius:6px;font-weight:600;text-decoration:none}body.cs-page .hero-button.primary{background:#fff;color:#0b4f5c}body.cs-page .hero-button.outline{background:transparent;border:1px solid #fff;color:#fff}.cs-page .case-study-hero .hero-inner{max-width:880px}.cs-page .article-main{padding-top:28px;padding-bottom:36px}.cs-page .article-main>.case-study-section:first-child h2{margin-top:0}.cs-page .article-main h2{font-size:20px}.cs-page .article-main h3{font-size:16px}.cs-page .case-study-section{box-sizing:border-box;width:100%;max-width:100%;margin:0 0 28px}.cs-page .case-study-section .how-to-read{box-sizing:border-box;width:100%;max-width:100%;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 18px}.cs-page .read-card{box-sizing:border-box;min-width:0}.cs-page .case-study-card{box-sizing:border-box;width:100%;max-width:100%;border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}.cs-page .case-study-card h3{margin:0}.cs-page .permission-list,.cs-page .finding-list{padding-left:22px}.cs-page .permission-list li,.cs-page .finding-list li{margin:5px 0}.cs-page .two-columns{display:grid;box-sizing:border-box;width:100%;max-width:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.cs-page .two-columns>div{box-sizing:border-box;min-width:0;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}.cs-page figure{box-sizing:border-box;width:100%;max-width:100%;margin:16px 0 24px}.cs-page .flow-figure{max-width:100%}.cs-page .chart-figure .fig-title,.cs-page .chart-figure figcaption{margin-left:0;margin-right:0}.cs-page .diagram{max-width:100%;margin-left:0;margin-right:0}.cs-page .case-study-footer{margin-top:36px}@media(max-width:759px){body.cs-page .hero h1{font-size:22px}.cs-page .case-study-section .how-to-read,.cs-page .two-columns{grid-template-columns:1fr}}"""
+    return styles.replace("</style>", extra + "</style>")
 
 
 def _case_study_html_content() -> str:
@@ -325,7 +337,7 @@ def _case_study_html_content() -> str:
         for value in (scenario["market"], scenario["currency"], *scenario["lines"])
     )
     hero = (
-        '<header class="hero case-study-hero"><div class="hero-inner">'
+        '<header class="hero case-study-hero"><div class="hero-inner cs-wrap">'
         '<span class="hero-pill">Case study · simulated scenario · synthetic data · illustrative, not legal advice</span>'
         '<h1>Life and protection AI: which use cases go forward, under what controls</h1>'
         f'<p class="hero-question case-study-outcome">{outcome}</p><div class="hero-chips">{hero_chips}</div>'
@@ -444,7 +456,7 @@ def _case_study_html_content() -> str:
     )
     source_links = " · ".join(f'<a href="{_repo_url(path)}">{_esc(label)}</a>' for label, path in _links())
     footer = f'<footer class="case-study-footer"><p>{_esc(BOUNDARY)}</p><p>MIT licence</p><p>Source data: {source_links}</p></footer>'
-    return hero + f'<main class="article-main">{problem}{approach}{gate}{governance}{reality}{limits}{footer}</main>'
+    return hero + f'<main class="article-main cs-wrap">{problem}{approach}{gate}{governance}{reality}{limits}{footer}</main>'
 
 
 def _approach_strip(case_count: int, stage_summary: str, worked_count_text: str) -> str:

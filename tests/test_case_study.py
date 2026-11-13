@@ -90,14 +90,22 @@ def test_case_study_hero_styles_and_static_page(tmp_path):
         "UK", "GBP", "Individual life", "Group life &amp; disability", "Income protection", "Annuities"
     ]
     assert "<script" not in page.casefold()
-    assert ".case-study-hero{padding:20px 0 28px}" in page
-    assert ".case-study-hero h1{font-size:26px;line-height:1.2}" in page
-    assert "@media(max-width:759px){.case-study-hero h1{font-size:22px}" in page
-    assert ".article-main{box-sizing:border-box;width:100%;max-width:820px;margin:0 auto;padding:28px 16px 36px}" in page
-    assert ".article-main>.case-study-section:first-child h2{margin-top:0}" in page
-    assert "max-width:820px;margin:0 auto" in page
-    assert "body{font-size:15px;line-height:1.6}" in page
-    assert ".article-main h2{font-size:20px}.article-main h3{font-size:16px}" in page
+    assert '<body class="cs-page">' in page
+    assert '<div class="hero-inner cs-wrap">' in page
+    assert '<main class="article-main cs-wrap">' in page
+    assert "body.cs-page .cs-wrap{box-sizing:border-box;width:100%;max-width:880px;margin-left:auto;margin-right:auto;padding-left:24px;padding-right:24px}" in page
+    assert "body.cs-page .hero{width:100%;padding:20px 0 28px" in page
+    assert "body.cs-page .hero h1{font-size:26px;line-height:1.2" in page
+    assert "@media(max-width:759px){body.cs-page .hero h1{font-size:22px}" in page
+    assert ".cs-page .article-main{padding-top:28px;padding-bottom:36px}" in page
+    assert ".cs-page .article-main>.case-study-section:first-child h2{margin-top:0}" in page
+    assert "body.cs-page{font-size:15px;line-height:1.6}" in page
+    assert ".cs-page .article-main h2{font-size:20px}.cs-page .article-main h3{font-size:16px}" in page
+    assert "grid-template-columns:repeat(3,minmax(0,1fr));gap:12px" in page
+    assert ".cs-page .case-study-card{box-sizing:border-box;width:100%;max-width:100%" in page
+    assert ".cs-page figure{box-sizing:border-box;width:100%;max-width:100%" in page
+    assert not re.search(r"margin-left:\s*\d+px", page)
+    assert "body:not(.cs-page) main{" in page
     assert "prefers-color-scheme:dark" in page
     assert parser.ids.count("VC-01") == 0
     assert page.index('id="problem"') < page.index('id="approach"') < page.index('id="gate"') < page.index('id="worked-agents"') < page.index('id="real-and-simulated"') < page.index('id="limits"')
@@ -135,7 +143,7 @@ def test_problem_approach_and_computed_gate_table(tmp_path):
     assert "Ranked #1 at Medium" in gate_part
     assert "Automated Underwriting Acceptance with Premium Loadings" in gate_part
     assert "Not eligible at any appetite" in gate_part
-    assert '<svg class="diagram value-chain-flow" viewBox="0 0 720 330"' in page
+    assert '<svg class="diagram value-chain-flow" viewBox="0 0 720 460"' in page
     assert "<strong>Assess</strong>" in page and "<strong>Gate</strong>" in page and "<strong>Prioritise and govern</strong>" in page
     assert table_position > page.index('id="gate"')
     assert len(parser.tables) == 1

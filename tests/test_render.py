@@ -494,15 +494,15 @@ def test_build_outputs_are_deterministic_utf8_and_markdown_has_stage_tier_table(
     case_study_svg = _flow_svg(case_study.decode("utf-8"))
     assert svg == case_study_svg
     parsed = ET.fromstring(svg)
-    assert parsed.attrib["viewBox"] == "0 0 720 330"
+    assert parsed.attrib["viewBox"] == "0 0 720 460"
     assert parsed.attrib["role"] == "img"
     assert parsed.find("title") is not None and parsed.find("desc") is not None
-    stages = re.findall(r'<g class="stage">(.*?)</g>', svg, flags=re.S)
+    stages = re.findall(r'<g class="stage"[^>]*data-box="stage-[^"]+">(.*?)</g>', svg, flags=re.S)
     assert len(stages) == 5
     counts = [int(re.search(r">(\d+) use cases</text>", stage).group(1)) for stage in stages]
     assert sum(counts) == len(load_use_cases()) == 14
     for label, count in zip(("Distribution", "Underwriting", "Policy admin", "Servicing", "Claims"), (2, 4, 4, 2, 2)):
-        assert f'<tspan class="label">{label}</tspan>' in svg
+        assert f">{label}</tspan>" in svg
         assert f">{count} use cases</text>" in svg
     for expected in (
         "Internal AI risk gate", "appetite: Medium", "Ranked shortlist", "top 5 of 11 eligible",
@@ -510,6 +510,8 @@ def test_build_outputs_are_deterministic_utf8_and_markdown_has_stage_tier_table(
     ):
         assert expected in svg
     assert svg.count("<marker ") == 1
+    assert svg.count('<line class="flow-arrow') == 10
+    assert not re.search(r'<(?:path|polyline|polygon)\b[^>]*class="flow-arrow', svg)
     assert ".diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}" in page
     assert "<img" not in svg
     assert not re.search(r'<img\b[^>]*src=["\'][^"\']*diagrams/', page + case_study.decode("utf-8"), flags=re.I)
@@ -519,16 +521,74 @@ def test_build_outputs_are_deterministic_utf8_and_markdown_has_stage_tier_table(
     assert not (REPO_ROOT / ".github" / "puppeteer-config.json").exists()
 
 
+def test_flow_svg_boxes_and_straight_edges_stay_inside_viewbox(tmp_path):
+    _, _, page, _, _ = _build(tmp_path)
+    svg = _flow_svg(page)
+    root = ET.fromstring(svg)
+    boxes = {}
+    for group in root.findall(".//g"):
+        box_id = group.attrib.get("data-box")
+        rect = group.find("rect")
+        if box_id and rect is not None:
+            boxes[box_id] = tuple(float(rect.attrib[key]) for key in ("x", "y", "width", "height"))
+    assert len(boxes) == 11
+    for x, y, width, height in boxes.values():
+        assert x >= 0 and y >= 0 and x + width <= 720 and y + height <= 460
+    box_values = list(boxes.items())
+    for index, (_, first) in enumerate(box_values):
+        for _, second in box_values[index + 1:]:
+            assert first[0] + first[2] <= second[0] or second[0] + second[2] <= first[0] or first[1] + first[3] <= second[1] or second[1] + second[3] <= first[1]
+
+    lines = root.findall(".//line")
+    assert len(lines) == 10
+    assert sum(line.attrib["data-source"].startswith("stage-") for line in lines) == 5
+    stage_centres = {"distribution": 76, "underwriting": 216, "policy_admin": 356, "servicing": 496, "claims": 636}
+    expected_points = {
+        **{(f"stage-{stage}", "gate"): (center, 68, min(max(center, 230), 490), 112) for stage, center in stage_centres.items()},
+        ("gate", "shortlist"): (360, 164, 200, 212),
+        ("gate", "ne"): (360, 164, 520, 212),
+        ("shortlist", "worked"): (200, 264, 200, 300),
+        ("worked", "controls"): (126, 352, 126, 392),
+        ("worked", "accountability"): (274, 352, 274, 392),
+    }
+    for line in lines:
+        source, target = line.attrib["data-source"], line.attrib["data-target"]
+        x1, y1, x2, y2 = (float(line.attrib[key]) for key in ("x1", "y1", "x2", "y2"))
+        assert (x1, y1, x2, y2) == expected_points[(source, target)]
+        assert source in boxes and target in boxes
+        sx, sy, sw, sh = boxes[source]
+        tx, ty, tw, th = boxes[target]
+        assert sx - 1 <= x1 <= sx + sw + 1 and sy - 1 <= y1 <= sy + sh + 1
+        assert tx - 1 <= x2 <= tx + tw + 1 and ty - 1 <= y2 <= ty + th + 1
+        assert (abs(y1 - (sy + sh)) <= 1 and abs(y2 - ty) <= 1)
+        # An open-rectangle clip detects any crossing through an unrelated box.
+        for other_id, (ox, oy, ow, oh) in boxes.items():
+            if other_id in (source, target):
+                continue
+            t_low, t_high = 0.0, 1.0
+            possible = True
+            for start, delta, low, high in ((x1, x2 - x1, ox + 1e-7, ox + ow - 1e-7), (y1, y2 - y1, oy + 1e-7, oy + oh - 1e-7)):
+                if abs(delta) < 1e-12:
+                    if not low < start < high:
+                        possible = False
+                        break
+                else:
+                    a, b = (low - start) / delta, (high - start) / delta
+                    t_low, t_high = max(t_low, min(a, b)), min(t_high, max(a, b))
+            assert not (possible and max(t_low, 0.0) < min(t_high, 1.0)), f"edge {source}->{target} crosses {other_id}"
+
+
 def test_flow_svg_css_has_light_dark_classes_and_expected_dimensions(tmp_path):
     _, _, page, _, _ = _build(tmp_path)
     assert '.diagram{display:block;width:100%;max-width:720px;height:auto;margin:0 auto}' in page
-    assert '.value-chain-flow text{font:13px system-ui' in page
-    assert '.value-chain-flow .gate polygon{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke)' in page
+    assert '.value-chain-flow .box-title{font:700 13px system-ui' in page
+    assert '.value-chain-flow .gate rect{fill:var(--flow-gate-fill);stroke:var(--flow-gate-stroke)' in page
     assert '.value-chain-flow .ne rect{fill:var(--flow-ne-fill);stroke:var(--flow-ne-stroke)' in page
     assert '--flow-gate-fill:#fff3d6' in page and '--flow-gate-fill:#4a3d17' in page
     assert '.chart-figure{box-sizing:border-box;width:100%;max-width:720px;margin:24px auto;border-top:1px solid var(--border);padding-top:12px}' in page
     assert '.fig-title{font-size:14px;font-weight:700' in page
     assert '.chart-figure figcaption{color:var(--muted);font-size:12px;max-width:var(--figure-chart-width,720px)' in page
+    assert 'body:not(.cs-page) #value-chain .flow-figure{margin:16px 0 24px;max-width:720px}' in page
 
 
 def test_page_ids_are_unique_and_worked_cards_are_the_only_vc_ids(tmp_path):
