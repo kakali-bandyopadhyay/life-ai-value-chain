@@ -1,0 +1,12 @@
+{
+  "title": "Life and protection AI value-chain assessment",
+  "insurer": "Simulated UK life and protection insurer",
+  "market": "UK",
+  "currency": "GBP",
+  "lines": [
+    "Individual life",
+    "Group life & disability",
+    "Income protection",
+    "Annuities"
+  ]
+}

@@ -1,0 +1,22 @@
+%%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 36, "curve": "basis"}, "themeVariables": {"fontSize": "14px"}}}%%
+flowchart LR
+  subgraph VC["Value chain"]
+    direction TB
+    S1["Distribution<br/>2 use cases"]
+    S2["Underwriting<br/>4 use cases"]
+    S3["Policy admin<br/>4 use cases"]
+    S4["Servicing<br/>2 use cases"]
+    S5["Claims<br/>2 use cases"]
+    S1 ~~~ S2 ~~~ S3 ~~~ S4 ~~~ S5
+  end
+  VC --> GATE{{"Internal AI risk gate<br/>appetite: Medium"}}
+  GATE --> SL["Ranked shortlist<br/>top 5 of 11 eligible"]
+  GATE -.-> NE["Not eligible (3)<br/>VC-02, VC-14 · high<br/>VC-03 · unacceptable"]
+  SL --> GOV["Worked governance<br/>VC-01 Underwriting Evidence Summariser<br/>VC-05 Policy-Admin Data Exception Agent"]
+  GOV --> CT["Controls trace<br/>24 controls"]
+  GOV --> AA["Agent accountability<br/>10 actions"]
+  classDef gate fill:#fff3d6,stroke:#b26a00;
+  classDef ne fill:#fdeaea,stroke:#b71c1c,stroke-dasharray:4 3;
+  classDef sl fill:#e0f2f1,stroke:#00695c;
+  classDef gov fill:#ffffff,stroke:#00695c
+  class GATE gate; class NE ne; class SL sl; class GOV,CT,AA gov

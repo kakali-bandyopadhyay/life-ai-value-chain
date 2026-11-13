@@ -1,0 +1,1 @@
+{"risk_order":["low","medium","high","unacceptable"],"default_max_risk":"medium","allowed_max_risk":["low","medium","high"],"default_weights":{"value":5,"feasibility":3,"data_readiness":2},"weight_range":[0,10],"shortlist_size":5}

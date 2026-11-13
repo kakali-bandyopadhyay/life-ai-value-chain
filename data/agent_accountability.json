@@ -1,0 +1,95 @@
+{
+  "data_notice": "Synthetic agent accountability table; illustrative only.",
+  "actions": [
+    {
+      "use_case_id": "VC-01",
+      "action": "recommend",
+      "agent_allowed": "yes",
+      "tool_permissions": "read-only: application disclosures, medical evidence pages, underwriting rules library",
+      "accountable_human_role": "Underwriter",
+      "escalation_path": "Underwriter → Senior underwriter",
+      "log_field": "summary_version"
+    },
+    {
+      "use_case_id": "VC-01",
+      "action": "approve",
+      "agent_allowed": "no",
+      "tool_permissions": "no agent permission; decision approval held by the underwriter in the underwriting decision record",
+      "accountable_human_role": "Underwriter",
+      "escalation_path": "Underwriter → Senior underwriter",
+      "log_field": "underwriter_decision_id"
+    },
+    {
+      "use_case_id": "VC-01",
+      "action": "execute",
+      "agent_allowed": "no",
+      "tool_permissions": "no agent write; permission to apply terms in the underwriting system held by the senior underwriter",
+      "accountable_human_role": "Senior underwriter",
+      "escalation_path": "Senior underwriter → Chief underwriter",
+      "log_field": "execution_id"
+    },
+    {
+      "use_case_id": "VC-01",
+      "action": "override",
+      "agent_allowed": "no",
+      "tool_permissions": "no agent permission; override authority held by the chief underwriter under the documented underwriting exception process",
+      "accountable_human_role": "Chief underwriter",
+      "escalation_path": "Chief underwriter → Underwriting governance forum",
+      "log_field": "override_reason_code"
+    },
+    {
+      "use_case_id": "VC-01",
+      "action": "stop",
+      "agent_allowed": "yes",
+      "tool_permissions": "read-only: application disclosures, medical evidence pages, underwriting rules library; agent may halt the summary and escalate when evidence is missing, illegible or conflicting",
+      "accountable_human_role": "Underwriter",
+      "escalation_path": "Underwriter → Senior underwriter",
+      "log_field": "stop_reason_code"
+    },
+    {
+      "use_case_id": "VC-05",
+      "action": "recommend",
+      "agent_allowed": "yes",
+      "tool_permissions": "read-only: policy schedule, policy admin record, premium collection status, commission split",
+      "accountable_human_role": "Policy data owner",
+      "escalation_path": "Policy data owner → Policy administration manager",
+      "log_field": "recommendation_id"
+    },
+    {
+      "use_case_id": "VC-05",
+      "action": "approve",
+      "agent_allowed": "no",
+      "tool_permissions": "no agent write; correction approval held by the policy data owner in the policy correction approval queue",
+      "accountable_human_role": "Policy data owner",
+      "escalation_path": "Policy data owner → Policy administration manager",
+      "log_field": "approved_at"
+    },
+    {
+      "use_case_id": "VC-05",
+      "action": "execute",
+      "agent_allowed": "no",
+      "tool_permissions": "no agent write; policy administration system write permission held by the policy administration manager",
+      "accountable_human_role": "Policy administration manager",
+      "escalation_path": "Policy administration manager → Head of policy administration",
+      "log_field": "policy_record_update_id"
+    },
+    {
+      "use_case_id": "VC-05",
+      "action": "override",
+      "agent_allowed": "no",
+      "tool_permissions": "no agent permission; override authority held by the head of policy administration under the documented policy administration exception process",
+      "accountable_human_role": "Head of policy administration",
+      "escalation_path": "Head of policy administration → Policy administration governance forum",
+      "log_field": "override_authorised_by"
+    },
+    {
+      "use_case_id": "VC-05",
+      "action": "stop",
+      "agent_allowed": "yes",
+      "tool_permissions": "read-only: policy schedule, policy admin record, premium collection status, commission split; agent may halt the correction and escalate when evidence is missing, illegible or conflicting",
+      "accountable_human_role": "Policy data owner",
+      "escalation_path": "Policy data owner → Policy administration manager",
+      "log_field": "stop_reason_code"
+    }
+  ]
+}
